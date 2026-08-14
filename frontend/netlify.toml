@@ -1,8 +1,8 @@
 # Netlify build configuration
 #
-# Only the React frontend is deployed here. The Laravel API lives on a PHP
-# host and is reached over the network via VITE_API_BASE_URL, which is set in
-# the Netlify dashboard rather than committed to the repo.
+# Only the React frontend is deployed here. The Node API lives on Render and
+# is reached over the network via VITE_API_BASE_URL, which is set in the
+# Netlify dashboard rather than committed to the repo.
 
 [build]
   base    = "frontend"
