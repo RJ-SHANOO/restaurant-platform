@@ -1,4 +1,5 @@
 import type { PrismaClient } from '@prisma/client';
+import { randomBytes } from 'crypto';
 
 /**
  * Human-readable document numbers: LHR-01-20260812-0045
@@ -70,7 +71,7 @@ export const documentNumber = {
 /** A URL-safe token with enough entropy that guessing one is not worth trying. */
 export function randomToken(length = 48): string {
   const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  const bytes = require('crypto').randomBytes(length) as Buffer;
+  const bytes = randomBytes(length);
 
   let token = '';
   for (let i = 0; i < length; i += 1) {
