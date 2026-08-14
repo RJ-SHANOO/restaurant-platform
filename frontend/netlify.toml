@@ -1,0 +1,36 @@
+# Netlify build configuration
+#
+# Only the React frontend is deployed here. The Laravel API lives on a PHP
+# host and is reached over the network via VITE_API_BASE_URL, which is set in
+# the Netlify dashboard rather than committed to the repo.
+
+[build]
+  base    = "frontend"
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+# The app is a single-page application: React Router owns the URLs, not the
+# server. Without this rule a visitor who opens /kitchen directly - or refreshes
+# it, or scans a QR code - gets a 404, because no such file exists on disk.
+# Every path is served index.html and the router takes over from there.
+[[redirects]]
+  from   = "/*"
+  to     = "/index.html"
+  status = 200
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options        = "SAMEORIGIN"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy        = "strict-origin-when-cross-origin"
+
+# Hashed build assets never change under the same name, so they can be cached
+# permanently. index.html must not be, or visitors keep loading an old app.
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"

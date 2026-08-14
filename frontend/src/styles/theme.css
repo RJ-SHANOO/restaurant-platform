@@ -1,0 +1,247 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * ---------------------------------------------------------------------------
+ * Design tokens - "Service Line" dark theme
+ * ---------------------------------------------------------------------------
+ * The default and only shipped theme is dark, tuned low rather than pure black:
+ * a POS screen sits under bright kitchen lighting for twelve hours a day, and
+ * #000 against that produces harsh halation. #0D1014 keeps contrast without
+ * the glare.
+ *
+ * Signal colours carry meaning and are never used decoratively:
+ *   ember  - the brand, and anything awaiting a human decision
+ *   mint   - ready, paid, settled
+ *   chili  - overdue, voided, refunded
+ *   sky    - informational figures, platform-level data
+ */
+:root {
+  --surface-void:   #0D1014;
+  --surface-panel:  #14181F;
+  --surface-raised: #1B212A;
+  --surface-hover:  #222A35;
+
+  --line:        #262E3A;
+  --line-strong: #35404F;
+
+  --text-primary:   #E9EEF5;
+  --text-secondary: #97A3B3;
+  --text-faint:     #5F6B7A;
+
+  --ember:      #F5A524;
+  --ember-deep: #B9761A;
+  --ember-soft: rgba(245, 165, 36, 0.13);
+
+  --mint:      #3DD68C;
+  --mint-soft: rgba(61, 214, 140, 0.13);
+
+  --chili:      #F2555A;
+  --chili-soft: rgba(242, 85, 90, 0.13);
+
+  --sky:      #5B9CFF;
+  --sky-soft: rgba(91, 156, 255, 0.13);
+
+  --header-height: 60px;
+  --sidebar-width: 248px;
+}
+
+@layer base {
+  * {
+    @apply border-line;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-void font-body text-ink antialiased;
+    /* A single very soft warm bloom behind the content, as if one lamp is on. */
+    background-image: radial-gradient(
+      1100px 620px at 82% -12%,
+      rgba(245, 165, 36, 0.055),
+      transparent 62%
+    );
+    background-attachment: fixed;
+    margin: 0;
+  }
+
+  h1, h2, h3, h4 {
+    @apply font-display tracking-tight;
+  }
+
+  /* Numbers live in the mono face everywhere: totals, order numbers, counts.
+     It is the one typographic decision that makes a POS feel like a POS. */
+  .numeric {
+    @apply font-data tabular-nums;
+  }
+
+  :focus-visible {
+    @apply outline-none ring-2 ring-ember/70 ring-offset-2 ring-offset-void;
+  }
+
+  ::-webkit-scrollbar { width: 9px; height: 9px; }
+  ::-webkit-scrollbar-track { background: var(--surface-void); }
+  ::-webkit-scrollbar-thumb {
+    background: var(--line-strong);
+    border-radius: 999px;
+  }
+  ::-webkit-scrollbar-thumb:hover { background: var(--text-faint); }
+}
+
+@layer components {
+  /* ---------------------------------------------------------------- surfaces */
+  .panel {
+    @apply rounded-card border border-line bg-panel shadow-panel;
+  }
+
+  .panel-interactive {
+    @apply panel transition-all duration-200;
+  }
+  .panel-interactive:hover {
+    @apply border-line-strong bg-raised -translate-y-0.5 shadow-lifted;
+  }
+
+  .eyebrow {
+    @apply text-eyebrow uppercase text-ink-faint;
+  }
+
+  /* ---------------------------------------------------------------- controls */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-control px-4 py-2.5
+           text-sm font-medium transition-all duration-150 active:scale-[.97]
+           disabled:pointer-events-none disabled:opacity-45;
+  }
+  .btn-primary {
+    @apply bg-ember text-[#1A1206] hover:bg-[#FFB63C] hover:shadow-ember-glow;
+  }
+  .btn-secondary {
+    @apply border border-line-strong bg-raised text-ink hover:bg-hover;
+  }
+  .btn-ghost {
+    @apply text-ink-soft hover:bg-raised hover:text-ink;
+  }
+  .btn-danger {
+    @apply bg-chili/15 text-chili hover:bg-chili/25;
+  }
+
+  .field {
+    @apply w-full rounded-control border border-line bg-void px-3.5 py-2.5 text-sm
+           text-ink placeholder:text-ink-faint transition-colors duration-150
+           focus:border-ember/60 focus:bg-panel;
+  }
+
+  .field-label {
+    @apply mb-1.5 block text-xs font-medium text-ink-soft;
+  }
+
+  .field-error {
+    @apply mt-1.5 text-xs text-chili;
+  }
+
+  /* ------------------------------------------------------------------ status */
+  .pill {
+    @apply inline-flex items-center gap-1.5 rounded-pill px-2.5 py-1
+           text-[11px] font-semibold uppercase tracking-wider;
+  }
+  .pill-ember { @apply bg-ember-soft text-ember; }
+  .pill-mint  { @apply bg-mint-soft text-mint; }
+  .pill-chili { @apply bg-chili-soft text-chili; }
+  .pill-sky   { @apply bg-sky-soft text-sky; }
+  .pill-muted { @apply bg-raised text-ink-soft; }
+
+  .status-dot {
+    @apply h-1.5 w-1.5 rounded-full bg-current;
+  }
+
+  /* ------------------------------------------------------------- navigation */
+  .nav-item {
+    @apply relative flex items-center gap-3 rounded-control px-3 py-2.5 text-sm
+           font-medium text-ink-soft transition-all duration-150;
+  }
+  .nav-item:hover {
+    @apply bg-raised text-ink;
+  }
+  .nav-item-active {
+    @apply bg-ember-soft text-ember;
+  }
+  /* The flame marker on the active route - the one recurring brand gesture. */
+  .nav-item-active::before {
+    content: '';
+    @apply absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-ember;
+  }
+
+  /* --------------------------------------------------- signature: KOT ticket */
+  /*
+   * Kitchen tickets are drawn as physical thermal-printed slips: a torn top
+   * edge, mono type, and an ageing bar that fills as prep time runs out. It is
+   * the one place in the interface allowed to look like an object rather than
+   * a card, because that is what the kitchen is actually holding.
+   */
+  .kot-ticket {
+    @apply relative rounded-b-card border border-line bg-panel pt-3;
+  }
+  .kot-ticket::before {
+    content: '';
+    @apply absolute inset-x-0 -top-[7px] h-[7px];
+    background:
+      repeating-linear-gradient(
+        -45deg,
+        var(--surface-panel) 0 6px,
+        transparent 6px 12px
+      );
+    filter: drop-shadow(0 -1px 0 var(--line));
+  }
+
+  .kot-age-bar {
+    @apply h-1 w-full overflow-hidden rounded-full bg-void;
+  }
+  .kot-age-fill {
+    @apply h-full rounded-full transition-[width] duration-1000 ease-linear;
+  }
+  .kot-age-fill[data-urgency='on_time'] { @apply bg-mint; }
+  .kot-age-fill[data-urgency='warning'] { @apply bg-ember; }
+  .kot-age-fill[data-urgency='overdue'] { @apply bg-chili; }
+
+  /* ---------------------------------------------------------------- loading */
+  .skeleton {
+    @apply rounded-control bg-raised;
+    background-image: linear-gradient(
+      90deg,
+      var(--surface-raised) 0%,
+      var(--surface-hover) 40%,
+      var(--surface-raised) 80%
+    );
+    background-size: 500px 100%;
+    @apply animate-shimmer;
+  }
+}
+
+@layer utilities {
+  .stagger-children > * {
+    @apply animate-rise-in;
+  }
+  .stagger-children > *:nth-child(1) { animation-delay: 0ms; }
+  .stagger-children > *:nth-child(2) { animation-delay: 45ms; }
+  .stagger-children > *:nth-child(3) { animation-delay: 90ms; }
+  .stagger-children > *:nth-child(4) { animation-delay: 135ms; }
+  .stagger-children > *:nth-child(5) { animation-delay: 180ms; }
+  .stagger-children > *:nth-child(6) { animation-delay: 225ms; }
+
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+}
+
+/* Anyone who has asked their system to calm down gets a calm interface. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -1,0 +1,35 @@
+# Render deployment. Push this repo, point Render at it, and it reads this file.
+#
+# Free tier: the service sleeps after 15 minutes of inactivity and takes
+# 30-50 seconds to wake. Fine for testing; move to the paid Starter tier before
+# real customers are relying on it.
+services:
+  - type: web
+    name: restaurant-platform-api
+    runtime: node
+    plan: free
+    rootDir: backend
+    buildCommand: npm install && npm run build
+    startCommand: npm run start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false      # set in the Render dashboard, never committed
+      - key: DIRECT_URL
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: FRONTEND_URL
+        sync: false      # your Netlify URL
+      - key: PLATFORM_COMMISSION_TYPE
+        value: percentage
+      - key: PLATFORM_COMMISSION_VALUE
+        value: "5.0"
+      - key: PLATFORM_SETTLEMENT_FREQUENCY
+        value: weekly
+      - key: PLATFORM_AUTO_ACTIVATE
+        value: "true"
+      - key: PLATFORM_CURRENCY
+        value: PKR
