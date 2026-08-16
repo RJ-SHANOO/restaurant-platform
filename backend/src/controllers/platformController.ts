@@ -3,6 +3,50 @@ import { z } from 'zod';
 import { prisma } from '../config/prisma';
 import { apiResponse, HttpError } from '../utils/apiResponse';
 import { commissionService } from '../services/commissionService';
+import { authService } from '../services/authService';
+import { auditLogService } from '../services/auditLogService';
+
+const createRestaurantSchema = z
+  .object({
+    restaurantName: z.string().min(2).max(150),
+    ownerName: z.string().min(2).max(150),
+    email: z.string().email('Enter a valid email address.'),
+    phone: z.string().regex(/^0[0-9]{10}$/, 'Enter an 11-digit phone number starting with 0.'),
+    password: z
+      .string()
+      .min(8, 'Use at least 8 characters.')
+      .regex(/[0-9]/, 'Include at least one number.'),
+    city: z.string().max(80).optional(),
+    addressLine: z.string().max(255).optional(),
+    branchName: z.string().max(120).optional(),
+    commissionType: z.enum(['percentage', 'fixed']),
+    commissionValue: z.number(),
+  })
+  // The restaurant it creates never gets to pick this - a restaurant does not
+  // name its own rate. Chosen here, by the admin, and nowhere else.
+  .superRefine((data, ctx) => {
+    if (data.commissionType === 'percentage') {
+      const isValidStep = Math.round(data.commissionValue * 2) === data.commissionValue * 2;
+
+      if (data.commissionValue < 0.5 || data.commissionValue > 10 || !isValidStep) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['commissionValue'],
+          message: 'Percentage commission must be between 0.5% and 10%, in steps of 0.5%.',
+        });
+      }
+    } else if (
+      !Number.isInteger(data.commissionValue) ||
+      data.commissionValue < 1 ||
+      data.commissionValue > 20
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['commissionValue'],
+        message: 'Fixed commission must be a whole number between Rs 1 and Rs 20.',
+      });
+    }
+  });
 
 /**
  * The Super Admin's console.
@@ -38,6 +82,32 @@ export const platformController = {
           awaitingSettlement: Number(pendingSettlement._sum.amount ?? 0),
         },
       });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  /**
+   * Onboards a restaurant on the admin's say-so, reusing the exact same
+   * transaction the public registration form runs - see
+   * authService.createRestaurantForAdmin. The one thing this form has that
+   * the public one does not is the commission dropdown.
+   */
+  async store(req: Request, res: Response, next: NextFunction) {
+    try {
+      const input = createRestaurantSchema.parse(req.body);
+      const result = await authService.createRestaurantForAdmin(input);
+
+      await auditLogService.record({
+        actorId: req.actor!.id,
+        restaurantId: result.restaurant.id,
+        action: 'restaurant.created',
+        subjectType: 'Restaurant',
+        subjectId: result.restaurant.id,
+        newValues: { name: result.restaurant.name, ...result.agreedTerms },
+      });
+
+      return apiResponse.created(res, result, `${result.restaurant.name} added.`);
     } catch (error) {
       next(error);
     }
@@ -128,10 +198,27 @@ export const platformController = {
         })
         .parse(req.body);
 
+      const restaurantId = Number(req.params.id);
+
+      const before = await prisma.restaurant.findUniqueOrThrow({
+        where: { id: restaurantId },
+        select: { commissionType: true, commissionValue: true, settlementFrequency: true },
+      });
+
       const restaurant = await prisma.restaurant.update({
-        where: { id: Number(req.params.id) },
+        where: { id: restaurantId },
         data: input,
         include: { _count: { select: { branches: true, orders: true, users: true } } },
+      });
+
+      await auditLogService.record({
+        actorId: req.actor!.id,
+        restaurantId,
+        action: 'restaurant.terms_updated',
+        subjectType: 'Restaurant',
+        subjectId: restaurantId,
+        oldValues: { ...before, commissionValue: Number(before.commissionValue) },
+        newValues: input,
       });
 
       return apiResponse.success(
@@ -150,10 +237,27 @@ export const platformController = {
         .object({ status: z.enum(['pending', 'active', 'suspended', 'closed']) })
         .parse(req.body);
 
+      const restaurantId = Number(req.params.id);
+
+      const before = await prisma.restaurant.findUniqueOrThrow({
+        where: { id: restaurantId },
+        select: { status: true },
+      });
+
       const restaurant = await prisma.restaurant.update({
-        where: { id: Number(req.params.id) },
+        where: { id: restaurantId },
         data: { status },
         include: { _count: { select: { branches: true, orders: true, users: true } } },
+      });
+
+      await auditLogService.record({
+        actorId: req.actor!.id,
+        restaurantId,
+        action: 'restaurant.status_updated',
+        subjectType: 'Restaurant',
+        subjectId: restaurantId,
+        oldValues: { status: before.status },
+        newValues: { status },
       });
 
       return apiResponse.success(
@@ -163,6 +267,66 @@ export const platformController = {
           ? 'Restaurant suspended. Its whole team is locked out until you reactivate it.'
           : `Restaurant marked ${status}.`,
       );
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  /**
+   * The commission ledger across every restaurant - what dashboard() totals
+   * up, one entry at a time. A reversal (a refund's negative entry) sits
+   * right next to the charge it nets against rather than editing it away,
+   * same as everywhere else money is never rewritten.
+   */
+  async commission(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { restaurantId, status } = req.query;
+
+      const where = {
+        ...(typeof restaurantId === 'string' ? { restaurantId: Number(restaurantId) } : {}),
+        ...(typeof status === 'string' ? { status: status as never } : {}),
+      };
+
+      const entries = await prisma.commissionEntry.findMany({
+        where,
+        include: { restaurant: { select: { id: true, name: true } } },
+        orderBy: { createdAt: 'desc' },
+        take: 60,
+      });
+
+      return apiResponse.success(
+        res,
+        entries.map((entry) => ({
+          ...entry,
+          baseAmount: Number(entry.baseAmount),
+          amount: Number(entry.amount),
+          commissionRate: Number(entry.commissionRate),
+        })),
+      );
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  /**
+   * What the Super Admin has done, and to which restaurant. Scoped to
+   * platform-console actions - see auditLogService for why.
+   */
+  async activity(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { restaurantId } = req.query;
+
+      const entries = await prisma.auditLog.findMany({
+        where: typeof restaurantId === 'string' ? { restaurantId: Number(restaurantId) } : undefined,
+        include: {
+          restaurant: { select: { id: true, name: true } },
+          user: { select: { id: true, fullName: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 60,
+      });
+
+      return apiResponse.success(res, entries);
     } catch (error) {
       next(error);
     }
@@ -210,6 +374,15 @@ export const platformController = {
       if (!settlement) {
         return apiResponse.noContent(res, 'Nothing to settle for this period.');
       }
+
+      await auditLogService.record({
+        actorId: req.actor!.id,
+        restaurantId,
+        action: 'settlement.created',
+        subjectType: 'Settlement',
+        subjectId: settlement.id,
+        newValues: { settlementNumber: settlement.settlementNumber },
+      });
 
       return apiResponse.created(res, settlement, `Settlement ${settlement.settlementNumber} created.`);
     } catch (error) {

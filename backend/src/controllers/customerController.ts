@@ -4,7 +4,7 @@ import { apiResponse, HttpError } from '../utils/apiResponse';
 
 const customerSchema = z.object({
   fullName: z.string().min(2).max(150),
-  phone: z.string().min(6).max(30),
+  phone: z.string().regex(/^0[0-9]{10}$/, 'Enter an 11-digit phone number starting with 0.'),
   email: z.string().email().max(150).optional().nullable(),
   addressLine: z.string().max(255).optional().nullable(),
   notes: z.string().max(500).optional().nullable(),

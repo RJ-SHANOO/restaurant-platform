@@ -153,6 +153,8 @@ export default function RegisterRestaurantPage() {
               value={form.phone}
               onChange={update('phone')}
               error={errors.phone?.[0]}
+              maxLength={11}
+              inputMode="numeric"
             />
           </div>
 

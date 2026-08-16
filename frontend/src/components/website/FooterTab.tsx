@@ -69,6 +69,8 @@ export function FooterTab({ value, set }: TabProps) {
           value={value.whatsappPhone ?? ''}
           onChange={(event) => set('whatsappPhone', event.target.value || null)}
           hint="Used for WhatsApp ordering, and shown as a footer link."
+          maxLength={11}
+          inputMode="numeric"
         />
       </section>
     </div>

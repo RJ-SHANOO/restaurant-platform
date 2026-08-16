@@ -14,7 +14,7 @@ const registerSchema = z.object({
   restaurantName: z.string().min(2, 'Enter the restaurant name.').max(150),
   ownerName: z.string().min(2, 'Enter your name.').max(150),
   email: z.string().email('Enter a valid email address.'),
-  phone: z.string().min(7, 'Enter a contact number.').max(30),
+  phone: z.string().regex(/^0[0-9]{10}$/, 'Enter an 11-digit phone number starting with 0.'),
   password: z
     .string()
     .min(8, 'Use at least 8 characters.')

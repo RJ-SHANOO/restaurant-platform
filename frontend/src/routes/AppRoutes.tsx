@@ -12,6 +12,11 @@ const LoginPage = lazy(() => import('@/pages/auth/LoginPage'));
 const RegisterRestaurantPage = lazy(() => import('@/pages/auth/RegisterRestaurantPage'));
 const PlatformDashboardPage = lazy(() => import('@/pages/platform/PlatformDashboardPage'));
 const RestaurantListPage = lazy(() => import('@/pages/platform/RestaurantListPage'));
+const AddRestaurantPage = lazy(() => import('@/pages/platform/AddRestaurantPage'));
+const SettlementsPage = lazy(() => import('@/pages/platform/SettlementsPage'));
+const PlatformSettingsPage = lazy(() => import('@/pages/platform/PlatformSettingsPage'));
+const CommissionPage = lazy(() => import('@/pages/platform/CommissionPage'));
+const ActivityLogPage = lazy(() => import('@/pages/platform/ActivityLogPage'));
 const RestaurantDashboardPage = lazy(() => import('@/pages/restaurant/RestaurantDashboardPage'));
 const BranchListPage = lazy(() => import('@/pages/restaurant/BranchListPage'));
 const MenuPage = lazy(() => import('@/pages/restaurant/MenuPage'));
@@ -73,6 +78,11 @@ export function AppRoutes() {
         >
           <Route index element={<PlatformDashboardPage />} />
           <Route path="restaurants" element={<RestaurantListPage />} />
+          <Route path="restaurants/new" element={<AddRestaurantPage />} />
+          <Route path="settlements" element={<SettlementsPage />} />
+          <Route path="settings" element={<PlatformSettingsPage />} />
+          <Route path="commission" element={<CommissionPage />} />
+          <Route path="activity" element={<ActivityLogPage />} />
         </Route>
 
         {/* --------------------------------------------------- restaurant */}

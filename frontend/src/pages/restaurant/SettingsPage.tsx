@@ -94,6 +94,8 @@ export default function SettingsPage() {
             value={value.contactPhone}
             disabled={!canEdit}
             onChange={(event) => set('contactPhone', event.target.value)}
+            maxLength={11}
+            inputMode="numeric"
           />
         </div>
 

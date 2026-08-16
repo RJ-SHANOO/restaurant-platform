@@ -177,21 +177,28 @@ tenant.put('/tables/:id', requirePermission('tables.update'), tableController.up
 tenant.delete('/tables/:id', requirePermission('tables.update'), tableController.destroy);
 tenant.post('/tables/:id/rotate-qr', requirePermission('tables.update'), qrController.rotateToken);
 
-router.use(tenant);
-
 // -------------------------------------------------------------- platform tier
 
 const platform = Router();
 platform.use(requirePlatformAdmin);
 
 platform.get('/dashboard', platformController.dashboard);
+platform.post('/restaurants', platformController.store);
 platform.get('/restaurants', platformController.restaurants);
 platform.get('/restaurants/:id', platformController.show);
 platform.patch('/restaurants/:id/commercial-terms', platformController.updateCommercialTerms);
 platform.patch('/restaurants/:id/status', platformController.updateStatus);
 platform.post('/restaurants/:id/settle', platformController.runSettlement);
 platform.get('/settlements', platformController.settlements);
+platform.get('/commission', platformController.commission);
+platform.get('/activity', platformController.activity);
 
+// Mounted before `tenant` below: tenant's requireTenant middleware has no
+// path restriction of its own, so it would otherwise catch every request -
+// including /platform/* - and reject a Super Admin who hasn't sent
+// X-View-Restaurant-Id, before the request ever reached this router.
 router.use('/platform', platform);
+
+router.use(tenant);
 
 export default router;

@@ -6,7 +6,11 @@ import { staffService } from '../services/staffService';
 const staffSchema = z.object({
   fullName: z.string().min(2).max(150),
   email: z.string().email().max(150),
-  phone: z.string().max(30).optional().nullable(),
+  phone: z
+    .string()
+    .regex(/^0[0-9]{10}$/, 'Enter an 11-digit phone number starting with 0.')
+    .optional()
+    .nullable(),
   password: z.string().min(8).max(100),
   roleId: z.number().int().positive(),
   branchId: z.number().int().positive().optional().nullable(),

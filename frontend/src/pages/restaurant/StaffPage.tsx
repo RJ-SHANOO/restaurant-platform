@@ -272,7 +272,13 @@ function StaffModal({
         <TextField label="Full name" value={fullName} onChange={(event) => setFullName(event.target.value)} />
         <div className="grid gap-4 sm:grid-cols-2">
           <TextField label="Email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} />
-          <TextField label="Phone" value={phone} onChange={(event) => setPhone(event.target.value)} />
+          <TextField
+            label="Phone"
+            value={phone}
+            onChange={(event) => setPhone(event.target.value)}
+            maxLength={11}
+            inputMode="numeric"
+          />
         </div>
 
         {!editing && (

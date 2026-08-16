@@ -124,10 +124,12 @@ export function DashboardLayout({ sections, contextLabel }: DashboardLayoutProps
           </button>
 
           <div className="ml-auto flex items-center gap-2">
-            <button className="btn btn-secondary hidden sm:inline-flex" type="button">
-              {user?.scope.branchName ?? 'All branches'}
-              <ChevronDown className="h-3.5 w-3.5" />
-            </button>
+            {!user?.scope.isPlatformAdmin && (
+              <button className="btn btn-secondary hidden sm:inline-flex" type="button">
+                {user?.scope.branchName ?? 'All branches'}
+                <ChevronDown className="h-3.5 w-3.5" />
+              </button>
+            )}
           </div>
         </header>
 

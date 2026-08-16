@@ -1,8 +1,10 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Search, Store } from 'lucide-react';
+import { Plus, Search, Store } from 'lucide-react';
 import { apiGet } from '@/api/client';
 import { endpoints } from '@/api/endpoints';
+import { Button } from '@/components/ui/Button';
 import { TextField } from '@/components/ui/TextField';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Skeleton } from '@/components/ui/Skeleton';
@@ -17,6 +19,7 @@ const STATUS_PILL: Record<Restaurant['status'], string> = {
 };
 
 export default function RestaurantListPage() {
+  const navigate = useNavigate();
   const [search, setSearch] = useState('');
 
   const { data: restaurants, isLoading } = useQuery({
@@ -32,13 +35,19 @@ export default function RestaurantListPage() {
           <h1 className="mt-1.5 text-display-md text-ink">Restaurants</h1>
         </div>
 
-        <div className="w-full max-w-xs">
-          <TextField
-            placeholder="Search by name"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            leadingIcon={<Search className="h-4 w-4" />}
-          />
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="w-full max-w-xs">
+            <TextField
+              placeholder="Search by name"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              leadingIcon={<Search className="h-4 w-4" />}
+            />
+          </div>
+
+          <Button leadingIcon={<Plus className="h-4 w-4" />} onClick={() => navigate('/platform/restaurants/new')}>
+            Add restaurant
+          </Button>
         </div>
       </header>
 

@@ -5,7 +5,11 @@ import { apiResponse } from '../utils/apiResponse';
 const supplierSchema = z.object({
   name: z.string().min(2).max(150),
   contactName: z.string().max(120).optional().nullable(),
-  phone: z.string().max(30).optional().nullable(),
+  phone: z
+    .string()
+    .regex(/^0[0-9]{10}$/, 'Enter an 11-digit phone number starting with 0.')
+    .optional()
+    .nullable(),
   email: z.string().email().max(150).optional().nullable(),
   addressLine: z.string().max(255).optional().nullable(),
 });

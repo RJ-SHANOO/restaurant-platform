@@ -24,7 +24,11 @@ const themeSchema = z.object({
   aboutText: z.string().max(4000).nullable().optional(),
   facebookUrl: z.string().url().max(255).nullable().optional(),
   instagramUrl: z.string().url().max(255).nullable().optional(),
-  whatsappPhone: z.string().max(30).nullable().optional(),
+  whatsappPhone: z
+    .string()
+    .regex(/^0[0-9]{10}$/, 'Enter an 11-digit phone number starting with 0.')
+    .nullable()
+    .optional(),
   showMenu: z.boolean().optional(),
   showBranches: z.boolean().optional(),
   allowOnlineOrder: z.boolean().optional(),

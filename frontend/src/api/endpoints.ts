@@ -22,6 +22,8 @@ export const endpoints = {
     status: (id: number) => `/platform/restaurants/${id}/status`,
     settle: (id: number) => `/platform/restaurants/${id}/settle`,
     settlements: '/platform/settlements',
+    commission: '/platform/commission',
+    activity: '/platform/activity',
   },
 
   branches: {

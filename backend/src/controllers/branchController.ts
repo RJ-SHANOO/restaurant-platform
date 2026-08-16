@@ -17,7 +17,11 @@ const branchSchema = z.object({
     .regex(/^[A-Z0-9-]+$/, 'Use capital letters, numbers and hyphens only.'),
   addressLine: z.string().max(255).optional().nullable(),
   city: z.string().max(80).optional().nullable(),
-  phone: z.string().max(30).optional().nullable(),
+  phone: z
+    .string()
+    .regex(/^0[0-9]{10}$/, 'Enter an 11-digit phone number starting with 0.')
+    .optional()
+    .nullable(),
   latitude: z.number().min(-90).max(90).optional().nullable(),
   longitude: z.number().min(-180).max(180).optional().nullable(),
   openingTime: z.string().regex(/^\d{2}:\d{2}$/).optional().nullable(),

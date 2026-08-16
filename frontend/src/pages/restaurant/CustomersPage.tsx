@@ -189,7 +189,14 @@ function CustomerModal({ editing, onClose }: { editing?: Customer; onClose: () =
       <div className="space-y-4">
         <TextField label="Full name" value={fullName} onChange={(event) => setFullName(event.target.value)} placeholder="Ahmed Raza" />
         <div className="grid gap-4 sm:grid-cols-2">
-          <TextField label="Phone" value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="03001234567" />
+          <TextField
+            label="Phone"
+            value={phone}
+            onChange={(event) => setPhone(event.target.value)}
+            placeholder="03001234567"
+            maxLength={11}
+            inputMode="numeric"
+          />
           <TextField label="Email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} />
         </div>
         <TextField label="Address" value={addressLine} onChange={(event) => setAddressLine(event.target.value)} />

@@ -331,7 +331,13 @@ function SupplierModal({ editing, onClose }: { editing?: Supplier; onClose: () =
         <TextField label="Name" value={name} onChange={(event) => setName(event.target.value)} placeholder="Metro Meat Suppliers" />
         <TextField label="Contact person" value={contactName} onChange={(event) => setContactName(event.target.value)} />
         <div className="grid gap-4 sm:grid-cols-2">
-          <TextField label="Phone" value={phone} onChange={(event) => setPhone(event.target.value)} />
+          <TextField
+            label="Phone"
+            value={phone}
+            onChange={(event) => setPhone(event.target.value)}
+            maxLength={11}
+            inputMode="numeric"
+          />
           <TextField label="Email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} />
         </div>
         <TextField label="Address" value={addressLine} onChange={(event) => setAddressLine(event.target.value)} />

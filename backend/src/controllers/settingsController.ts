@@ -18,7 +18,7 @@ import { apiResponse, HttpError } from '../utils/apiResponse';
 const settingsSchema = z.object({
   name: z.string().min(2).max(150),
   contactEmail: z.string().email().max(150),
-  contactPhone: z.string().min(6).max(30),
+  contactPhone: z.string().regex(/^0[0-9]{10}$/, 'Enter an 11-digit phone number starting with 0.'),
   addressLine: z.string().max(255).optional().nullable(),
   city: z.string().max(80).optional().nullable(),
   logoPath: z.string().max(255).optional().nullable(),

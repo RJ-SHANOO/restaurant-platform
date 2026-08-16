@@ -1,5 +1,6 @@
 import clsx from 'clsx';
-import { forwardRef, type InputHTMLAttributes, type ReactNode } from 'react';
+import { Eye, EyeOff } from 'lucide-react';
+import { forwardRef, useState, type InputHTMLAttributes, type ReactNode } from 'react';
 
 interface TextFieldProps extends InputHTMLAttributes<HTMLInputElement> {
   label?: string;
@@ -13,8 +14,10 @@ interface TextFieldProps extends InputHTMLAttributes<HTMLInputElement> {
  * technically objected to.
  */
 export const TextField = forwardRef<HTMLInputElement, TextFieldProps>(
-  ({ label, error, hint, leadingIcon, className, id, ...rest }, ref) => {
+  ({ label, error, hint, leadingIcon, className, id, type, ...rest }, ref) => {
     const fieldId = id ?? rest.name;
+    const [revealed, setRevealed] = useState(false);
+    const isPassword = type === 'password';
 
     return (
       <div className="w-full">
@@ -34,16 +37,30 @@ export const TextField = forwardRef<HTMLInputElement, TextFieldProps>(
           <input
             ref={ref}
             id={fieldId}
+            type={isPassword && revealed ? 'text' : type}
             aria-invalid={Boolean(error)}
             aria-describedby={error ? `${fieldId}-error` : undefined}
             className={clsx(
               'field',
               leadingIcon && 'pl-10',
+              isPassword && 'pr-10',
               error && 'border-chili/60 focus:border-chili',
               className,
             )}
             {...rest}
           />
+
+          {isPassword && (
+            <button
+              type="button"
+              onClick={() => setRevealed((current) => !current)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-faint hover:text-ink"
+              aria-label={revealed ? 'Hide password' : 'Show password'}
+              tabIndex={-1}
+            >
+              {revealed ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </button>
+          )}
         </div>
 
         {error ? (

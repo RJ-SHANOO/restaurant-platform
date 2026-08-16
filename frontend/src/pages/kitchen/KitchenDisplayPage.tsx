@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ChefHat, LogOut } from 'lucide-react';
+import { ArrowLeft, ChefHat, LogOut } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { apiGet, apiPatch } from '@/api/client';
@@ -66,6 +66,17 @@ export default function KitchenDisplayPage() {
               <p className="numeric text-lg font-bold text-sky">{inProgress.length}</p>
             </div>
           </div>
+
+          {user?.primaryRole !== 'kitchen_staff' && (
+            <button
+              onClick={() => navigate(user?.scope.isPlatformAdmin ? '/platform' : '/app')}
+              className="btn btn-ghost"
+              aria-label="Back to dashboard"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              <span className="hidden sm:inline">Dashboard</span>
+            </button>
+          )}
 
           <button
             onClick={async () => {

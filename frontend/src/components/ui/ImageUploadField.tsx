@@ -36,7 +36,13 @@ export function ImageUploadField({ label, value, onChange }: ImageUploadFieldPro
       onChange(url);
       toast.success('Image uploaded.');
     } catch (error) {
-      toast.error(error instanceof ApiError ? error.message : 'Could not upload that image.');
+      if (error instanceof ApiError && error.status === 400) {
+        // Cloudinary isn't configured on this deployment. The URL field
+        // above still works - uploading is a convenience, not the only way in.
+        toast.error('Upload is not set up yet. Paste an image URL above instead.');
+      } else {
+        toast.error(error instanceof ApiError ? error.message : 'Could not upload that image.');
+      }
     } finally {
       setUploading(false);
       if (inputRef.current) inputRef.current.value = '';

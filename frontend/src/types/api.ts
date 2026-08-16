@@ -525,3 +525,48 @@ export interface MenuProduct {
   category?: { id: number; name: string };
   variants?: Array<{ id: number; name: string; price: number; isDefault: boolean }>;
 }
+
+export interface ActivityLogEntry {
+  id: number;
+  action: string;
+  subjectType: string;
+  subjectId: number | null;
+  oldValues: Record<string, unknown> | null;
+  newValues: Record<string, unknown> | null;
+  createdAt: string;
+  restaurant: { id: number; name: string } | null;
+  user: { id: number; fullName: string } | null;
+}
+
+export interface CommissionEntry {
+  id: number;
+  restaurantId: number;
+  invoiceId: number | null;
+  settlementId: number | null;
+  type: 'charge' | 'reversal';
+  status: 'pending' | 'settled';
+  baseAmount: number;
+  amount: number;
+  commissionType: 'percentage' | 'fixed';
+  commissionRate: number;
+  note: string | null;
+  createdAt: string;
+  restaurant: { id: number; name: string };
+}
+
+export interface Settlement {
+  id: number;
+  restaurantId: number;
+  settlementNumber: string;
+  status: 'open' | 'finalised' | 'paid';
+  periodStart: string;
+  periodEnd: string;
+  grossSales: number;
+  commissionTotal: number;
+  entryCount: number;
+  finalisedAt: string | null;
+  paidAt: string | null;
+  paymentRef: string | null;
+  createdAt: string;
+  restaurant: { id: number; name: string };
+}
