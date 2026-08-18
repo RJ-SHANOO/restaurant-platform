@@ -7,7 +7,6 @@ restaurant-platform/
 │
 ├── README.md                          ✅ Setup and commands
 ├── PROJECT_STRUCTURE.md               ✅ This file
-├── docs/                              ✅ architecture · deployment · api
 │
 ├── backend/                           ── NODE + EXPRESS + TS ──
 │   ├── package.json                   ✅

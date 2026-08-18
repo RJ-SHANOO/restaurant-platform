@@ -138,6 +138,3 @@ always reconciles.
 | File | Contents |
 |---|---|
 | [`PROJECT_STRUCTURE.md`](PROJECT_STRUCTURE.md) | Full file tree, and where to change what |
-| [`docs/architecture.md`](docs/architecture.md) | Design decisions and data flow |
-| [`docs/deployment.md`](docs/deployment.md) | Neon + Render + Netlify, step by step |
-| [`docs/api.md`](docs/api.md) | Endpoint reference |
