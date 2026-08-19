@@ -1,6 +1,7 @@
 import { Outlet, useNavigate } from 'react-router-dom';
 import { ChefHat, LogOut, Receipt } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
+import { NotificationBell } from '@/components/ui/NotificationBell';
 
 /**
  * Full-bleed, no sidebar, large touch targets.
@@ -26,6 +27,8 @@ export function PosLayout() {
         </span>
 
         <div className="ml-auto flex items-center gap-2">
+          <NotificationBell linkToBoard={false} />
+
           <button
             onClick={() => navigate('/kitchen')}
             className="btn btn-ghost"

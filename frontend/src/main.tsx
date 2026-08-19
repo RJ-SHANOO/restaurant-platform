@@ -4,6 +4,7 @@ import { BrowserRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'sonner';
 import { AuthProvider } from '@/context/AuthContext';
+import { NotificationProvider } from '@/context/NotificationContext';
 import { AppRoutes } from '@/routes/AppRoutes';
 import '@/styles/theme.css';
 
@@ -22,8 +23,10 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <AuthProvider>
-          <AppRoutes />
-          <Toaster theme="dark" position="top-right" richColors closeButton />
+          <NotificationProvider>
+            <AppRoutes />
+            <Toaster theme="dark" position="top-right" richColors closeButton />
+          </NotificationProvider>
         </AuthProvider>
       </BrowserRouter>
     </QueryClientProvider>

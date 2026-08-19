@@ -344,6 +344,46 @@ export interface Order {
   };
 }
 
+export interface InvoicePayment {
+  id: number;
+  method: { id: number; name: string; kind: PaymentMethodKind };
+  amount: number;
+  changeAmount: number;
+  reference: string | null;
+  state: string;
+  createdAt: string;
+}
+
+export interface InvoiceRefund {
+  id: number;
+  amount: number;
+  reasonCode: string;
+  reasonNote: string | null;
+  createdAt: string;
+}
+
+export interface Invoice {
+  id: number;
+  invoiceNumber: string;
+  status: 'issued' | 'paid' | 'void';
+  order: { id: number; orderNumber: string; orderType: string } | null;
+  totals: {
+    subtotal: number;
+    discountAmount: number;
+    serviceCharge: number;
+    taxAmount: number;
+    grandTotal: number;
+    paidAmount: number;
+    refundedAmount: number;
+    outstanding: number;
+  };
+  qrPayload: string;
+  payments: InvoicePayment[];
+  refunds: InvoiceRefund[];
+  issuedAt: string;
+  paidAt: string | null;
+}
+
 export interface KitchenTicket {
   id: number;
   ticketNumber: string;

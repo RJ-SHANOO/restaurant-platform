@@ -3,6 +3,7 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import clsx from 'clsx';
 import { ChevronDown, Flame, LogOut, Menu } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
+import { NotificationBell } from '@/components/ui/NotificationBell';
 import type { NavigationSection } from '@/routes/navigation';
 
 interface DashboardLayoutProps {
@@ -125,10 +126,13 @@ export function DashboardLayout({ sections, contextLabel }: DashboardLayoutProps
 
           <div className="ml-auto flex items-center gap-2">
             {!user?.scope.isPlatformAdmin && (
-              <button className="btn btn-secondary hidden sm:inline-flex" type="button">
-                {user?.scope.branchName ?? 'All branches'}
-                <ChevronDown className="h-3.5 w-3.5" />
-              </button>
+              <>
+                <NotificationBell />
+                <button className="btn btn-secondary hidden sm:inline-flex" type="button">
+                  {user?.scope.branchName ?? 'All branches'}
+                  <ChevronDown className="h-3.5 w-3.5" />
+                </button>
+              </>
             )}
           </div>
         </header>

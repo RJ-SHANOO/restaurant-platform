@@ -87,11 +87,15 @@ restaurant-platform/
         ├── api/
         │   ├── client.ts              ✅ Axios, token, ApiError
         │   └── endpoints.ts           ✅ Every URL in one place
-        ├── context/AuthContext.tsx    ✅ User, permissions, can()
+        ├── context/
+        │   ├── AuthContext.tsx        ✅ User, permissions, can()
+        │   └── NotificationContext.tsx ✅ Polls for new orders; sound + toast +
+        │                                 browser notification, unread count
         ├── routes/                    ✅ AppRoutes, ProtectedRoute, navigation
         ├── layouts/                   ✅ DashboardLayout, PosLayout
         ├── components/
-        │   ├── ui/                    ✅ Button, TextField, ImageUploadField, StatCard, Modal, …
+        │   ├── ui/                    ✅ Button, TextField, ImageUploadField, StatCard, Modal,
+        │   │                             NotificationBell, …
         │   ├── shared/KitchenTicketCard.tsx  ✅ Signature component
         │   └── website/               ✅ WebsiteEditorPage's 5 tabs, shared field
         │                                 atoms, live preview
