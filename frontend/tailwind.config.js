@@ -15,36 +15,33 @@ export default {
   content: ['./index.html', './src/**/*.{ts,tsx}'],
   theme: {
     extend: {
-      // Written as rgb triplets with <alpha-value> rather than plain
-      // var(--x). Tailwind can only synthesise opacity variants (bg-panel/95,
-      // ring-ember/70) when it can see the channels; a bare CSS variable is an
-      // opaque string to it and those utilities fail to compile.
-      //
-      // The cost is that colours are declared in two places: here for Tailwind
-      // classes, and as CSS variables in theme.css for rules that use
-      // var(--ember) directly. Change a colour and both need updating.
+      // Colours are declared as "R G B" CSS variables in theme.css - a light
+      // set on :root and a dark set on [data-theme='dark'] - so switching the
+      // theme toggle repaints every one of these classes with no rebuild.
+      // rgb(var(--x) / <alpha-value>) is what lets Tailwind still synthesise
+      // opacity variants (bg-panel/95, ring-ember/70) against a variable.
       colors: {
-        void: 'rgb(13 16 20 / <alpha-value>)',
-        panel: 'rgb(20 24 31 / <alpha-value>)',
-        raised: 'rgb(27 33 42 / <alpha-value>)',
-        hover: 'rgb(34 42 53 / <alpha-value>)',
-        line: 'rgb(38 46 58 / <alpha-value>)',
-        'line-strong': 'rgb(53 64 79 / <alpha-value>)',
+        void: 'rgb(var(--c-void) / <alpha-value>)',
+        panel: 'rgb(var(--c-panel) / <alpha-value>)',
+        raised: 'rgb(var(--c-raised) / <alpha-value>)',
+        hover: 'rgb(var(--c-hover) / <alpha-value>)',
+        line: 'rgb(var(--c-line) / <alpha-value>)',
+        'line-strong': 'rgb(var(--c-line-strong) / <alpha-value>)',
 
         ink: {
-          DEFAULT: 'rgb(233 238 245 / <alpha-value>)',
-          soft: 'rgb(151 163 179 / <alpha-value>)',
-          faint: 'rgb(95 107 122 / <alpha-value>)',
+          DEFAULT: 'rgb(var(--c-ink) / <alpha-value>)',
+          soft: 'rgb(var(--c-ink-soft) / <alpha-value>)',
+          faint: 'rgb(var(--c-ink-faint) / <alpha-value>)',
         },
 
         ember: {
-          DEFAULT: 'rgb(245 165 36 / <alpha-value>)',
+          DEFAULT: 'rgb(var(--c-ember) / <alpha-value>)',
           soft: 'var(--ember-soft)',
-          deep: 'rgb(185 118 26 / <alpha-value>)',
+          deep: 'rgb(var(--c-ember-deep) / <alpha-value>)',
         },
-        mint: { DEFAULT: 'rgb(61 214 140 / <alpha-value>)', soft: 'var(--mint-soft)' },
-        chili: { DEFAULT: 'rgb(242 85 90 / <alpha-value>)', soft: 'var(--chili-soft)' },
-        sky: { DEFAULT: 'rgb(91 156 255 / <alpha-value>)', soft: 'var(--sky-soft)' },
+        mint: { DEFAULT: 'rgb(var(--c-mint) / <alpha-value>)', soft: 'var(--mint-soft)' },
+        chili: { DEFAULT: 'rgb(var(--c-chili) / <alpha-value>)', soft: 'var(--chili-soft)' },
+        sky: { DEFAULT: 'rgb(var(--c-sky) / <alpha-value>)', soft: 'var(--sky-soft)' },
       },
 
       fontFamily: {

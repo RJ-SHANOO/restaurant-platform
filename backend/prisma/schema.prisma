@@ -44,6 +44,15 @@ enum SettlementFrequency {
   monthly
 }
 
+// Drives CommissionRun windowing (see PLATFORM REVENUE below). Distinct from
+// SettlementFrequency, which only controls how far back a manually-triggered
+// settlement looks - the cycle is what actually buckets commission entries.
+enum CommissionCycle {
+  daily
+  every_3d
+  weekly
+}
+
 model Restaurant {
   id           Int              @id @default(autoincrement())
   name         String           @db.VarChar(150)
@@ -65,6 +74,12 @@ model Restaurant {
   settlementFrequency SettlementFrequency @default(weekly) @map("settlement_frequency")
   termsAgreedAt       DateTime?           @map("terms_agreed_at")
 
+  // The cycle a commission run is windowed by, and the date its boundaries
+  // are counted from. Changing the cycle moves the anchor to the next
+  // boundary rather than re-slicing runs already computed under the old one.
+  commissionCycle CommissionCycle @default(weekly) @map("commission_cycle")
+  cycleAnchorDate DateTime        @default(now()) @map("cycle_anchor_date") @db.Date
+
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
   deletedAt DateTime? @map("deleted_at")
@@ -83,6 +98,7 @@ model Restaurant {
   refunds           Refund[]
   paymentMethods    PaymentMethod[]
   commissionEntries CommissionEntry[]
+  commissionRuns    CommissionRun[]
   settlements       Settlement[]
   inventoryItems    InventoryItem[]
   suppliers         Supplier[]
@@ -123,9 +139,9 @@ model Branch {
   taxPercentage           Decimal @default(0) @map("tax_percentage") @db.Decimal(5, 2)
   serviceChargePercentage Decimal @default(0) @map("service_charge_percentage") @db.Decimal(5, 2)
 
-  acceptsQrOrders  Boolean @default(true) @map("accepts_qr_orders")
-  acceptsDelivery  Boolean @default(false) @map("accepts_delivery")
-  acceptsTakeaway  Boolean @default(true) @map("accepts_takeaway")
+  acceptsQrOrders Boolean @default(true) @map("accepts_qr_orders")
+  acceptsDelivery Boolean @default(false) @map("accepts_delivery")
+  acceptsTakeaway Boolean @default(true) @map("accepts_takeaway")
 
   status    BranchStatus @default(active)
   createdAt DateTime     @default(now()) @map("created_at")
@@ -134,17 +150,17 @@ model Branch {
 
   restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
 
-  users            User[]
-  diningTables     DiningTable[]
-  orders           Order[]
-  kitchenStations  KitchenStation[]
-  inventoryLevels  BranchInventoryLevel[]
-  inventoryTxns    InventoryTransaction[]
-  invoices         Invoice[]
-  purchases        Purchase[]
-  expenses         Expense[]
-  devices          Device[]
-  branchProducts   BranchProduct[]
+  users           User[]
+  diningTables    DiningTable[]
+  orders          Order[]
+  kitchenStations KitchenStation[]
+  inventoryLevels BranchInventoryLevel[]
+  inventoryTxns   InventoryTransaction[]
+  invoices        Invoice[]
+  purchases       Purchase[]
+  expenses        Expense[]
+  devices         Device[]
+  branchProducts  BranchProduct[]
 
   @@unique([restaurantId, code])
   @@index([restaurantId, status])
@@ -170,10 +186,10 @@ model User {
   phone    String? @db.VarChar(30)
   password String  @db.VarChar(255)
 
-  avatarPath  String?   @map("avatar_path") @db.VarChar(255)
+  avatarPath  String?    @map("avatar_path") @db.VarChar(255)
   status      UserStatus @default(active)
-  lastLoginAt DateTime? @map("last_login_at")
-  lastLoginIp String?   @map("last_login_ip") @db.VarChar(45)
+  lastLoginAt DateTime?  @map("last_login_at")
+  lastLoginIp String?    @map("last_login_ip") @db.VarChar(45)
 
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
@@ -182,9 +198,9 @@ model User {
   restaurant Restaurant? @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
   branch     Branch?     @relation(fields: [branchId], references: [id], onDelete: SetNull)
 
-  roles          UserRole[]
-  statusHistory  OrderStatusHistory[]
-  auditLogs      AuditLog[]
+  roles         UserRole[]
+  statusHistory OrderStatusHistory[]
+  auditLogs     AuditLog[]
 
   // Email is unique per tenant, not globally: one person can hold an account
   // at two different restaurants. Platform admins (restaurantId null) are
@@ -226,8 +242,8 @@ model Permission {
 }
 
 model UserRole {
-  userId Int  @map("user_id")
-  roleId Int  @map("role_id")
+  userId Int @map("user_id")
+  roleId Int @map("role_id")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
   role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
@@ -252,19 +268,19 @@ model RolePermission {
 // =============================================================================
 
 model RestaurantWebsite {
-  id           Int    @id @default(autoincrement())
-  restaurantId Int    @unique @map("restaurant_id")
+  id           Int @id @default(autoincrement())
+  restaurantId Int @unique @map("restaurant_id")
 
   isPublished  Boolean @default(false) @map("is_published")
   customDomain String? @unique @map("custom_domain") @db.VarChar(190)
 
   // Theme. Held as discrete columns rather than a JSON blob so a bad value
   // can be validated on the way in and a colour can be queried or reported on.
-  primaryColor    String  @default("#F5A524") @map("primary_color") @db.VarChar(9)
-  secondaryColor  String  @default("#3DD68C") @map("secondary_color") @db.VarChar(9)
-  backgroundShade String  @default("dark") @map("background_shade") @db.VarChar(10)
-  fontFamily      String  @default("Inter") @map("font_family") @db.VarChar(60)
-  layoutStyle     String  @default("classic") @map("layout_style") @db.VarChar(20)
+  primaryColor    String @default("#F5A524") @map("primary_color") @db.VarChar(9)
+  secondaryColor  String @default("#3DD68C") @map("secondary_color") @db.VarChar(9)
+  backgroundShade String @default("dark") @map("background_shade") @db.VarChar(10)
+  fontFamily      String @default("Inter") @map("font_family") @db.VarChar(60)
+  layoutStyle     String @default("classic") @map("layout_style") @db.VarChar(20)
 
   logoUrl   String? @map("logo_url") @db.VarChar(500)
   bannerUrl String? @map("banner_url") @db.VarChar(500)
@@ -275,17 +291,17 @@ model RestaurantWebsite {
   instagramUrl  String? @map("instagram_url") @db.VarChar(255)
   whatsappPhone String? @map("whatsapp_phone") @db.VarChar(30)
 
-  showMenu       Boolean @default(true) @map("show_menu")
-  showBranches   Boolean @default(true) @map("show_branches")
+  showMenu         Boolean @default(true) @map("show_menu")
+  showBranches     Boolean @default(true) @map("show_branches")
   allowOnlineOrder Boolean @default(false) @map("allow_online_order")
 
   // ------------------------------------------------------------------ header
-  logoPosition  String  @default("left") @map("logo_position") @db.VarChar(10) // left | center
-  headerSticky  Boolean @default(true) @map("header_sticky")
+  logoPosition    String  @default("left") @map("logo_position") @db.VarChar(10) // left | center
+  headerSticky    Boolean @default(true) @map("header_sticky")
   showHeaderPhone Boolean @default(false) @map("show_header_phone")
-  orderNowText   String @default("Order Now") @map("order_now_text") @db.VarChar(40)
-  orderNowTarget String @default("menu") @map("order_now_target") @db.VarChar(20) // menu | whatsapp | branches | custom
-  orderNowUrl    String? @map("order_now_url") @db.VarChar(500) // only read when orderNowTarget = custom
+  orderNowText    String  @default("Order Now") @map("order_now_text") @db.VarChar(40)
+  orderNowTarget  String  @default("menu") @map("order_now_target") @db.VarChar(20) // menu | whatsapp | branches | custom
+  orderNowUrl     String? @map("order_now_url") @db.VarChar(500) // only read when orderNowTarget = custom
 
   // A restaurant-managed list, so held as JSON rather than its own table -
   // there is nothing to query it by. Each entry is { label, url }.
@@ -301,9 +317,9 @@ model RestaurantWebsite {
   heroHeading    String? @map("hero_heading") @db.VarChar(150)
   heroButtonText String  @default("Order Now") @map("hero_button_text") @db.VarChar(40)
 
-  showFeaturedProducts   Boolean @default(true) @map("show_featured_products")
-  featuredProductsLimit  Int     @default(4) @map("featured_products_limit")
-  showAboutSection       Boolean @default(true) @map("show_about_section")
+  showFeaturedProducts  Boolean @default(true) @map("show_featured_products")
+  featuredProductsLimit Int     @default(4) @map("featured_products_limit")
+  showAboutSection      Boolean @default(true) @map("show_about_section")
 
   // The order home page sections render in. A fixed vocabulary of section
   // keys, so held as JSON rather than one column per position.
@@ -344,9 +360,9 @@ model Category {
   updatedAt DateTime  @updatedAt @map("updated_at")
   deletedAt DateTime? @map("deleted_at")
 
-  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
-  parent     Category?  @relation("CategoryTree", fields: [parentId], references: [id], onDelete: SetNull)
-  children   Category[] @relation("CategoryTree")
+  restaurant Restaurant               @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  parent     Category?                @relation("CategoryTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children   Category[]               @relation("CategoryTree")
   products   Product[]
   stations   CategoryKitchenStation[]
 
@@ -356,9 +372,9 @@ model Category {
 }
 
 model Product {
-  id           Int     @id @default(autoincrement())
-  restaurantId Int     @map("restaurant_id")
-  categoryId   Int     @map("category_id")
+  id           Int @id @default(autoincrement())
+  restaurantId Int @map("restaurant_id")
+  categoryId   Int @map("category_id")
 
   name        String  @db.VarChar(150)
   slug        String  @db.VarChar(170)
@@ -377,13 +393,13 @@ model Product {
   updatedAt DateTime  @updatedAt @map("updated_at")
   deletedAt DateTime? @map("deleted_at")
 
-  restaurant     Restaurant             @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
-  category       Category               @relation(fields: [categoryId], references: [id], onDelete: Restrict)
-  variants       ProductVariant[]
-  modifierGroups ProductModifierGroup[]
+  restaurant      Restaurant             @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  category        Category               @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  variants        ProductVariant[]
+  modifierGroups  ProductModifierGroup[]
   branchOverrides BranchProduct[]
-  recipeItems    ProductRecipeItem[]
-  orderItems     OrderItem[]
+  recipeItems     ProductRecipeItem[]
+  orderItems      OrderItem[]
 
   @@unique([restaurantId, slug])
   @@index([restaurantId, categoryId, isAvailable])
@@ -391,12 +407,12 @@ model Product {
 }
 
 model ProductVariant {
-  id        Int     @id @default(autoincrement())
-  productId Int     @map("product_id")
-  name      String  @db.VarChar(80)
+  id         Int     @id @default(autoincrement())
+  productId  Int     @map("product_id")
+  name       String  @db.VarChar(80)
   priceDelta Decimal @default(0) @map("price_delta") @db.Decimal(10, 2)
-  isDefault Boolean @default(false) @map("is_default")
-  sortOrder Int     @default(0) @map("sort_order")
+  isDefault  Boolean @default(false) @map("is_default")
+  sortOrder  Int     @default(0) @map("sort_order")
 
   product    Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
   orderItems OrderItem[]
@@ -410,13 +426,13 @@ enum ModifierSelectionType {
 }
 
 model ModifierGroup {
-  id           Int                   @id @default(autoincrement())
-  restaurantId Int                   @map("restaurant_id")
-  name         String                @db.VarChar(120)
+  id            Int                   @id @default(autoincrement())
+  restaurantId  Int                   @map("restaurant_id")
+  name          String                @db.VarChar(120)
   selectionType ModifierSelectionType @default(single) @map("selection_type")
-  minSelections Int                  @default(0) @map("min_selections")
-  maxSelections Int                  @default(1) @map("max_selections")
-  isRequired    Boolean              @default(false) @map("is_required")
+  minSelections Int                   @default(0) @map("min_selections")
+  maxSelections Int                   @default(1) @map("max_selections")
+  isRequired    Boolean               @default(false) @map("is_required")
 
   restaurant Restaurant             @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
   modifiers  Modifier[]
@@ -558,13 +574,13 @@ model Order {
   restaurantId Int @map("restaurant_id")
   branchId     Int @map("branch_id")
 
-  orderNumber   String  @map("order_number") @db.VarChar(40)
-  diningTableId Int?    @map("dining_table_id")
-  customerId    Int?    @map("customer_id")
+  orderNumber   String @map("order_number") @db.VarChar(40)
+  diningTableId Int?   @map("dining_table_id")
+  customerId    Int?   @map("customer_id")
 
-  orderType OrderType    @default(dine_in) @map("order_type")
-  channel   OrderChannel @default(pos)
-  status    OrderStatus  @default(pending)
+  orderType     OrderType     @default(dine_in) @map("order_type")
+  channel       OrderChannel  @default(pos)
+  status        OrderStatus   @default(pending)
   paymentStatus PaymentStatus @default(unpaid) @map("payment_status")
 
   guestCount   Int?    @map("guest_count")
@@ -573,17 +589,23 @@ model Order {
 
   // Frozen snapshots. A later menu price change never rewrites an order that
   // has already been placed.
-  subtotal        Decimal @default(0) @db.Decimal(12, 2)
-  discountAmount  Decimal @default(0) @map("discount_amount") @db.Decimal(12, 2)
-  serviceCharge   Decimal @default(0) @map("service_charge") @db.Decimal(12, 2)
-  taxAmount       Decimal @default(0) @map("tax_amount") @db.Decimal(12, 2)
-  deliveryFee     Decimal @default(0) @map("delivery_fee") @db.Decimal(12, 2)
-  tipAmount       Decimal @default(0) @map("tip_amount") @db.Decimal(12, 2)
-  grandTotal      Decimal @default(0) @map("grand_total") @db.Decimal(12, 2)
+  subtotal       Decimal @default(0) @db.Decimal(12, 2)
+  discountAmount Decimal @default(0) @map("discount_amount") @db.Decimal(12, 2)
+  serviceCharge  Decimal @default(0) @map("service_charge") @db.Decimal(12, 2)
+  taxAmount      Decimal @default(0) @map("tax_amount") @db.Decimal(12, 2)
+  deliveryFee    Decimal @default(0) @map("delivery_fee") @db.Decimal(12, 2)
+  tipAmount      Decimal @default(0) @map("tip_amount") @db.Decimal(12, 2)
+  grandTotal     Decimal @default(0) @map("grand_total") @db.Decimal(12, 2)
 
   // A replayed key returns the original order instead of creating a second
   // one. This is what makes an offline queue safe to flush twice.
   idempotencyKey String? @map("idempotency_key") @db.VarChar(64)
+
+  // The restaurant's calendar day the order was placed on, frozen at
+  // creation from the branch's timezone. Commission runs join on this, not
+  // createdAt, so a bill settled after midnight still lands in the cycle the
+  // order actually happened in.
+  businessDate DateTime @map("business_date") @db.Date
 
   placedAt    DateTime  @default(now()) @map("placed_at")
   confirmedAt DateTime? @map("confirmed_at")
@@ -622,11 +644,11 @@ model OrderItem {
   productName String  @map("product_name") @db.VarChar(150)
   variantName String? @map("variant_name") @db.VarChar(80)
 
-  quantity        Int     @default(1)
-  cancelledQuantity Int   @default(0) @map("cancelled_quantity")
-  unitPrice       Decimal @map("unit_price") @db.Decimal(10, 2)
-  modifierTotal   Decimal @default(0) @map("modifier_total") @db.Decimal(10, 2)
-  lineTotal       Decimal @map("line_total") @db.Decimal(12, 2)
+  quantity          Int     @default(1)
+  cancelledQuantity Int     @default(0) @map("cancelled_quantity")
+  unitPrice         Decimal @map("unit_price") @db.Decimal(10, 2)
+  modifierTotal     Decimal @default(0) @map("modifier_total") @db.Decimal(10, 2)
+  lineTotal         Decimal @map("line_total") @db.Decimal(12, 2)
 
   modifierSummary String? @map("modifier_summary") @db.VarChar(500)
   kitchenNote     String? @map("kitchen_note") @db.VarChar(255)
@@ -634,9 +656,9 @@ model OrderItem {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  order       Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  product     Product         @relation(fields: [productId], references: [id], onDelete: Restrict)
-  variant     ProductVariant? @relation(fields: [productVariantId], references: [id], onDelete: SetNull)
+  order       Order               @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product     Product             @relation(fields: [productId], references: [id], onDelete: Restrict)
+  variant     ProductVariant?     @relation(fields: [productVariantId], references: [id], onDelete: SetNull)
   ticketItems KitchenTicketItem[]
 
   @@index([orderId])
@@ -735,8 +757,8 @@ model KitchenTicket {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  order   Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  station KitchenStation? @relation(fields: [kitchenStationId], references: [id], onDelete: SetNull)
+  order   Order               @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  station KitchenStation?     @relation(fields: [kitchenStationId], references: [id], onDelete: SetNull)
   items   KitchenTicketItem[]
 
   @@index([branchId, status, createdAt])
@@ -777,10 +799,10 @@ model InventoryItem {
   updatedAt DateTime  @updatedAt @map("updated_at")
   deletedAt DateTime? @map("deleted_at")
 
-  restaurant   Restaurant             @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
-  levels       BranchInventoryLevel[]
-  transactions InventoryTransaction[]
-  recipeItems  ProductRecipeItem[]
+  restaurant    Restaurant             @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  levels        BranchInventoryLevel[]
+  transactions  InventoryTransaction[]
+  recipeItems   ProductRecipeItem[]
   purchaseItems PurchaseItem[]
 
   @@unique([restaurantId, name])
@@ -921,11 +943,11 @@ model PurchaseItem {
 // =============================================================================
 
 model PaymentMethod {
-  id           Int     @id @default(autoincrement())
-  restaurantId Int     @map("restaurant_id")
-  name         String  @db.VarChar(80)
-  code         String  @db.VarChar(40)
-  kind         String  @default("cash") @db.VarChar(20) // cash | card | wallet | bank | online
+  id           Int    @id @default(autoincrement())
+  restaurantId Int    @map("restaurant_id")
+  name         String @db.VarChar(80)
+  code         String @db.VarChar(40)
+  kind         String @default("cash") @db.VarChar(20) // cash | card | wallet | bank | online
 
   requiresReference Boolean @default(false) @map("requires_reference")
   accountTitle      String? @map("account_title") @db.VarChar(120)
@@ -970,11 +992,11 @@ model Invoice {
   paidAmount     Decimal @default(0) @map("paid_amount") @db.Decimal(12, 2)
   refundedAmount Decimal @default(0) @map("refunded_amount") @db.Decimal(12, 2)
 
-  qrPayload String?   @map("qr_payload") @db.VarChar(500)
-  issuedAt  DateTime  @default(now()) @map("issued_at")
-  paidAt    DateTime? @map("paid_at")
-  voidedAt  DateTime? @map("voided_at")
-  voidReason String?  @map("void_reason") @db.VarChar(255)
+  qrPayload  String?   @map("qr_payload") @db.VarChar(500)
+  issuedAt   DateTime  @default(now()) @map("issued_at")
+  paidAt     DateTime? @map("paid_at")
+  voidedAt   DateTime? @map("voided_at")
+  voidReason String?   @map("void_reason") @db.VarChar(255)
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -1020,14 +1042,14 @@ model Payment {
 }
 
 model Refund {
-  id           Int     @id @default(autoincrement())
-  restaurantId Int     @map("restaurant_id")
-  invoiceId    Int     @map("invoice_id")
-  amount       Decimal @db.Decimal(12, 2)
-  reasonCode   String  @map("reason_code") @db.VarChar(40)
-  reasonNote   String? @map("reason_note") @db.VarChar(255)
+  id                 Int     @id @default(autoincrement())
+  restaurantId       Int     @map("restaurant_id")
+  invoiceId          Int     @map("invoice_id")
+  amount             Decimal @db.Decimal(12, 2)
+  reasonCode         String  @map("reason_code") @db.VarChar(40)
+  reasonNote         String? @map("reason_note") @db.VarChar(255)
   restockedInventory Boolean @default(false) @map("restocked_inventory")
-  issuedBy     Int?    @map("issued_by")
+  issuedBy           Int?    @map("issued_by")
 
   createdAt DateTime @default(now()) @map("created_at")
 
@@ -1088,19 +1110,68 @@ model CommissionEntry {
 
   // The rate is snapshotted here. Changing a restaurant's rate tomorrow never
   // rewrites what it already owed today.
-  commissionType  CommissionType @map("commission_type")
-  commissionRate  Decimal        @map("commission_rate") @db.Decimal(10, 2)
+  commissionType CommissionType @map("commission_type")
+  commissionRate Decimal        @map("commission_rate") @db.Decimal(10, 2)
+
+  // The day this entry is economically attributed to (the order's business
+  // date for a charge, the day the refund was issued for a reversal) - what
+  // a CommissionRun actually windows by.
+  businessDate DateTime @map("business_date") @db.Date
+  runId        Int?     @map("run_id")
+
+  // Set only when businessDate's proper cycle window had already closed by
+  // the time this entry was created - a late arrival. The entry itself still
+  // lands in whatever run is open right now (runId); this just keeps the
+  // trail to which cycle it was really earned in.
+  originalRunId Int? @map("original_run_id")
 
   note String? @db.VarChar(255)
 
   createdAt DateTime @default(now()) @map("created_at")
 
-  restaurant Restaurant  @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
-  invoice    Invoice?    @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
-  settlement Settlement? @relation(fields: [settlementId], references: [id], onDelete: SetNull)
+  restaurant  Restaurant     @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  invoice     Invoice?       @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  settlement  Settlement?    @relation(fields: [settlementId], references: [id], onDelete: SetNull)
+  run         CommissionRun? @relation("RunEntries", fields: [runId], references: [id], onDelete: SetNull)
+  originalRun CommissionRun? @relation("RunAdjustments", fields: [originalRunId], references: [id], onDelete: SetNull)
 
   @@index([restaurantId, status, createdAt])
+  @@index([runId])
   @@map("commission_entries")
+}
+
+enum CommissionRunStatus {
+  open
+  closed
+}
+
+// The business_date-windowed bucket a commission entry accrues into as
+// orders happen. Settlement still does the finalise/pay step, sweeping one
+// or more closed runs; a run never gets re-opened or re-sliced once closed.
+model CommissionRun {
+  id           Int                 @id @default(autoincrement())
+  restaurantId Int                 @map("restaurant_id")
+  cycleStart   DateTime            @map("cycle_start") @db.Date
+  cycleEnd     DateTime            @map("cycle_end") @db.Date
+  status       CommissionRunStatus @default(open)
+  settlementId Int?                @map("settlement_id")
+
+  grossSales      Decimal @default(0) @map("gross_sales") @db.Decimal(14, 2)
+  commissionTotal Decimal @default(0) @map("commission_total") @db.Decimal(14, 2)
+  entryCount      Int     @default(0) @map("entry_count")
+
+  closedAt  DateTime? @map("closed_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  restaurant  Restaurant        @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  settlement  Settlement?       @relation(fields: [settlementId], references: [id], onDelete: SetNull)
+  entries     CommissionEntry[] @relation("RunEntries")
+  adjustments CommissionEntry[] @relation("RunAdjustments")
+
+  @@unique([restaurantId, cycleStart, cycleEnd])
+  @@index([restaurantId, status])
+  @@map("commission_runs")
 }
 
 enum SettlementStatus {
@@ -1131,6 +1202,7 @@ model Settlement {
 
   restaurant Restaurant        @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
   entries    CommissionEntry[]
+  runs       CommissionRun[]
 
   @@unique([restaurantId, settlementNumber])
   @@map("settlements")

@@ -10,7 +10,9 @@ import { prisma } from '../config/prisma';
  */
 export const auditLogService = {
   async record(params: {
-    actorId: number;
+    // null identifies a system-triggered action (a scheduled job), not a
+    // missing one - a human actor is always a real user id.
+    actorId: number | null;
     restaurantId?: number | null;
     action: string;
     subjectType: string;

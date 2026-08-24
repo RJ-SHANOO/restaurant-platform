@@ -4,12 +4,14 @@
 
 /*
  * ---------------------------------------------------------------------------
- * Design tokens - "Service Line" dark theme
+ * Design tokens - "Service Line"
  * ---------------------------------------------------------------------------
- * The default and only shipped theme is dark, tuned low rather than pure black:
- * a POS screen sits under bright kitchen lighting for twelve hours a day, and
- * #000 against that produces harsh halation. #0D1014 keeps contrast without
- * the glare.
+ * Light is the default (easier to read on a bright counter/register screen);
+ * dark is opt-in via the theme toggle, which sets data-theme="dark" on <html>
+ * and is what a POS screen under low kitchen lighting wants instead.
+ *
+ * Colours are stored as "R G B" channel triplets so Tailwind can synthesise
+ * opacity variants (bg-panel/95, ring-ember/70) via rgb(var(--c-x) / <alpha>).
  *
  * Signal colours carry meaning and are never used decoratively:
  *   ember  - the brand, and anything awaiting a human decision
@@ -18,33 +20,67 @@
  *   sky    - informational figures, platform-level data
  */
 :root {
-  --surface-void:   #0D1014;
-  --surface-panel:  #14181F;
-  --surface-raised: #1B212A;
-  --surface-hover:  #222A35;
+  --c-void:   250 250 251;
+  --c-panel:  255 255 255;
+  --c-raised: 244 245 247;
+  --c-hover:  234 236 240;
 
-  --line:        #262E3A;
-  --line-strong: #35404F;
+  --c-line:        224 227 232;
+  --c-line-strong: 200 206 214;
 
-  --text-primary:   #E9EEF5;
-  --text-secondary: #97A3B3;
-  --text-faint:     #5F6B7A;
+  --c-ink:      23 27 33;
+  --c-ink-soft: 82 92 105;
+  --c-ink-faint: 138 148 160;
 
-  --ember:      #F5A524;
-  --ember-deep: #B9761A;
-  --ember-soft: rgba(245, 165, 36, 0.13);
+  --c-ember:      217 128 10;
+  --c-ember-deep: 168 99 8;
+  --ember-soft: rgba(217, 128, 10, 0.12);
 
-  --mint:      #3DD68C;
-  --mint-soft: rgba(61, 214, 140, 0.13);
+  --c-mint:    22 163 106;
+  --mint-soft: rgba(22, 163, 106, 0.12);
 
-  --chili:      #F2555A;
-  --chili-soft: rgba(242, 85, 90, 0.13);
+  --c-chili:    214 58 63;
+  --chili-soft: rgba(214, 58, 63, 0.12);
 
-  --sky:      #5B9CFF;
-  --sky-soft: rgba(91, 156, 255, 0.13);
+  --c-sky:    37 99 235;
+  --sky-soft: rgba(37, 99, 235, 0.12);
+
+  --surface-void:   rgb(var(--c-void));
+  --surface-panel:  rgb(var(--c-panel));
+  --surface-raised: rgb(var(--c-raised));
+  --surface-hover:  rgb(var(--c-hover));
+  --line:        rgb(var(--c-line));
+  --line-strong: rgb(var(--c-line-strong));
 
   --header-height: 60px;
   --sidebar-width: 248px;
+}
+
+html[data-theme='dark'] {
+  --c-void:   13 16 20;
+  --c-panel:  20 24 31;
+  --c-raised: 27 33 42;
+  --c-hover:  34 42 53;
+
+  --c-line:        38 46 58;
+  --c-line-strong: 53 64 79;
+
+  --c-ink:       233 238 245;
+  --c-ink-soft:  151 163 179;
+  --c-ink-faint: 95 107 122;
+
+  --c-ember:      245 165 36;
+  --c-ember-deep: 185 118 26;
+  --ember-soft: rgba(245, 165, 36, 0.13);
+
+  --c-mint:    61 214 140;
+  --mint-soft: rgba(61, 214, 140, 0.13);
+
+  --c-chili:    242 85 90;
+  --chili-soft: rgba(242, 85, 90, 0.13);
+
+  --c-sky:    91 156 255;
+  --sky-soft: rgba(91, 156, 255, 0.13);
 }
 
 @layer base {
@@ -88,7 +124,7 @@
     background: var(--line-strong);
     border-radius: 999px;
   }
-  ::-webkit-scrollbar-thumb:hover { background: var(--text-faint); }
+  ::-webkit-scrollbar-thumb:hover { background: rgb(var(--c-ink-faint)); }
 }
 
 @layer components {

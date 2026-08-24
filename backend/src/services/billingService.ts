@@ -163,7 +163,7 @@ export const billingService = {
       // Commission accrues only on a fully-paid bill. An order that is
       // cancelled or never paid must never generate platform revenue.
       if (isFullyPaid) {
-        await commissionService.accrueForInvoice(tx, updated);
+        await commissionService.accrueForInvoice(tx, updated, updated.order.businessDate);
       }
 
       return { payment, invoice: updated };
@@ -266,5 +266,5 @@ export const billingService = {
 export const invoiceInclude = {
   payments: { include: { method: { select: { id: true, name: true, kind: true } } } },
   refunds: true,
-  order: { select: { id: true, orderNumber: true, orderType: true } },
+  order: { select: { id: true, orderNumber: true, orderType: true, businessDate: true } },
 } satisfies Prisma.InvoiceInclude;

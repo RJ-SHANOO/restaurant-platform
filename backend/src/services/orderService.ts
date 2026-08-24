@@ -3,6 +3,7 @@ import { prisma } from '../config/prisma';
 import { HttpError } from '../utils/apiResponse';
 import { calculateOrderTotals, money } from '../utils/money';
 import { documentNumber } from '../utils/documentNumber';
+import { businessDateFor } from '../utils/businessDate';
 import { kitchenService } from './kitchenService';
 import { inventoryService } from './inventoryService';
 
@@ -79,6 +80,7 @@ export const orderService = {
       async (tx) => {
         const branch = await tx.branch.findFirst({
           where: { id: input.branchId, restaurantId, deletedAt: null },
+          include: { restaurant: { select: { timezone: true } } },
         });
 
         if (!branch) {
@@ -196,6 +198,7 @@ export const orderService = {
             guestCount: input.guestCount ?? null,
             customerNote: input.customerNote?.slice(0, 500) ?? null,
             idempotencyKey: input.idempotencyKey ?? null,
+            businessDate: businessDateFor(branch.restaurant.timezone),
             subtotal: totals.subtotal,
             discountAmount: totals.discountAmount,
             serviceCharge: totals.serviceCharge,

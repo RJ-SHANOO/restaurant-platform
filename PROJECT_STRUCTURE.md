@@ -25,6 +25,10 @@ restaurant-platform/
 │       ├── server.ts                  ✅ Entry point
 │       ├── app.ts                     ✅ Express setup, CORS, security
 │       │
+│       ├── jobs/
+│       │   └── commissionRunScheduler.ts ✅ Hourly: closes due CommissionRuns,
+│       │                                    sweeps them into a Settlement
+│       │
 │       ├── config/
 │       │   ├── env.ts                 ✅ All environment values, resolved once
 │       │   └── prisma.ts              ✅ THE TENANT GUARD — read this one
@@ -75,7 +79,9 @@ restaurant-platform/
 │       ├── utils/
 │       │   ├── apiResponse.ts         ✅ Response envelope + HttpError
 │       │   ├── money.ts               ✅ ALL money arithmetic
-│       │   └── documentNumber.ts      ✅ LHR-01-20260812-0045
+│       │   ├── documentNumber.ts      ✅ LHR-01-20260812-0045
+│       │   └── businessDate.ts        ✅ Timezone-aware calendar day, for
+│       │                                 CommissionRun cycle windowing
 │       └── types/express.d.ts         ✅ req.actor, req.db, req.tenantId
 │
 └── frontend/                          ── REACT + VITE + TS ──

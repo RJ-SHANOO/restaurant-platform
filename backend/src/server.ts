@@ -1,6 +1,7 @@
 import app from './app';
 import { env } from './config/env';
 import { prisma } from './config/prisma';
+import { startCommissionRunScheduler } from './jobs/commissionRunScheduler';
 
 async function start() {
   try {
@@ -16,6 +17,8 @@ async function start() {
     console.log(`${env.appName} API listening on http://localhost:${env.port}`);
     console.log(`Environment: ${env.nodeEnv}`);
   });
+
+  startCommissionRunScheduler();
 
   // Close the pool cleanly on redeploy, so connections are not left dangling
   // against Neon's limit.

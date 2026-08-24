@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import clsx from 'clsx';
-import { ChevronDown, Flame, LogOut, Menu } from 'lucide-react';
+import { ChevronDown, Flame, LogOut, Menu, Moon, Sun } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
+import { useTheme } from '@/context/ThemeContext';
 import { NotificationBell } from '@/components/ui/NotificationBell';
 import type { NavigationSection } from '@/routes/navigation';
 
@@ -20,6 +21,7 @@ interface DashboardLayoutProps {
  */
 export function DashboardLayout({ sections, contextLabel }: DashboardLayoutProps) {
   const { user, signOut, can } = useAuth();
+  const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
@@ -125,6 +127,13 @@ export function DashboardLayout({ sections, contextLabel }: DashboardLayoutProps
           </button>
 
           <div className="ml-auto flex items-center gap-2">
+            <button
+              onClick={toggleTheme}
+              className="rounded-control p-2 text-ink-soft hover:bg-raised hover:text-ink"
+              aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            >
+              {theme === 'dark' ? <Sun className="h-[18px] w-[18px]" /> : <Moon className="h-[18px] w-[18px]" />}
+            </button>
             {!user?.scope.isPlatformAdmin && (
               <>
                 <NotificationBell />
