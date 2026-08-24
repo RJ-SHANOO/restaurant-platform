@@ -17,11 +17,17 @@ interface QrTheme {
   logoUrl: string | null;
 }
 
+interface QrMenuCategory {
+  id: number;
+  name: string;
+  products: MenuProduct[];
+}
+
 interface QrContext {
   restaurant: { name: string; slug: string; currencyCode: string; theme: QrTheme | null };
   branch: { id: number; name: string };
   table: { label: string; capacity: number };
-  menu: MenuProduct[];
+  menu: QrMenuCategory[];
 }
 
 const DEFAULT_THEME: QrTheme = {
@@ -57,24 +63,18 @@ export default function QrMenuPage() {
   const theme = data?.restaurant.theme ?? DEFAULT_THEME;
   const { background, text, muted, surface, onPrimary } = resolveSiteTheme(theme.backgroundShade);
 
-  const categories = useMemo(() => {
-    const groups = new Map<string, MenuProduct[]>();
-
-    data?.menu.forEach((product) => {
-      const name = product.category?.name ?? 'Menu';
-      groups.set(name, [...(groups.get(name) ?? []), product]);
-    });
-
-    return [...groups.entries()];
-  }, [data]);
+  const allProducts = useMemo(
+    () => data?.menu.flatMap((category) => category.products) ?? [],
+    [data],
+  );
 
   const cartTotal = useMemo(
     () =>
       Object.entries(quantities).reduce((total, [productId, quantity]) => {
-        const product = data?.menu.find((item) => item.id === Number(productId));
+        const product = allProducts.find((item) => item.id === Number(productId));
         return total + (product?.price ?? 0) * quantity;
       }, 0),
-    [quantities, data],
+    [quantities, allProducts],
   );
 
   const itemCount = Object.values(quantities).reduce((total, quantity) => total + quantity, 0);
@@ -157,17 +157,17 @@ export default function QrMenuPage() {
       </header>
 
       <main className="space-y-8 px-5 py-6">
-        {categories.map(([categoryName, products]) => (
-          <section key={categoryName}>
+        {data.menu.map((category) => (
+          <section key={category.id}>
             <h2
               className="mb-3 text-xs font-semibold uppercase tracking-[0.16em]"
               style={{ color: muted }}
             >
-              {categoryName}
+              {category.name}
             </h2>
 
             <ul className="space-y-2.5">
-              {products.map((product) => {
+              {category.products.map((product) => {
                 const quantity = quantities[product.id] ?? 0;
 
                 return (
