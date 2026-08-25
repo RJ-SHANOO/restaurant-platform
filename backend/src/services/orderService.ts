@@ -46,6 +46,7 @@ export interface CreateOrderInput {
   guestCount?: number;
   customerNote?: string;
   idempotencyKey?: string;
+  orderTakerName?: string;
   items: OrderItemInput[];
 }
 
@@ -182,7 +183,16 @@ export const orderService = {
           taxPercentage: Number(branch.taxPercentage),
         });
 
-        const orderNumber = await documentNumber.forOrder(tx, branch.id, branch.code);
+        const { orderNumber, sequence } = await documentNumber.forOrder(tx, branch.id, branch.code);
+
+        // Copied, not joined - like OrderItem.productName, so a table renamed
+        // later never changes what an already-printed receipt says.
+        const diningTable = input.diningTableId
+          ? await tx.diningTable.findFirst({
+              where: { id: input.diningTableId, restaurantId, branchId: branch.id },
+              select: { label: true },
+            })
+          : null;
 
         const order = await tx.order.create({
           data: {
@@ -199,8 +209,12 @@ export const orderService = {
             customerNote: input.customerNote?.slice(0, 500) ?? null,
             idempotencyKey: input.idempotencyKey ?? null,
             businessDate: businessDateFor(branch.restaurant.timezone),
+            tokenNumber: sequence,
+            tableNumber: diningTable?.label ?? null,
+            orderTakerName: input.orderTakerName?.slice(0, 150) ?? null,
             subtotal: totals.subtotal,
             discountAmount: totals.discountAmount,
+            serviceChargePercent: branch.serviceChargePercentage,
             serviceCharge: totals.serviceCharge,
             taxAmount: totals.taxAmount,
             grandTotal: totals.grandTotal,
@@ -238,88 +252,91 @@ export const orderService = {
     toStatus: OrderStatus,
     options: { actorId?: number; reason?: string } = {},
   ) {
-    return prisma.$transaction(async (tx) => {
-      const order = await tx.order.findFirst({
-        where: { id: orderId, restaurantId },
-        include: { branch: true, items: true },
-      });
-
-      if (!order) {
-        throw HttpError.notFound('That order does not exist.');
-      }
-
-      const legal = ALLOWED_TRANSITIONS[order.status];
-
-      if (!legal.includes(toStatus)) {
-        throw HttpError.validation({
-          status: [
-            legal.length > 0
-              ? `An order that is ${order.status} can only move to: ${legal.join(', ')}.`
-              : `An order that is ${order.status} cannot change status.`,
-          ],
+    return prisma.$transaction(
+      async (tx) => {
+        const order = await tx.order.findFirst({
+          where: { id: orderId, restaurantId },
+          include: { branch: true, items: true },
         });
-      }
 
-      if ((toStatus === 'cancelled' || toStatus === 'voided') && !options.reason) {
-        throw HttpError.validation({
-          reason: ['A reason is required when cancelling or voiding an order.'],
-        });
-      }
+        if (!order) {
+          throw HttpError.notFound('That order does not exist.');
+        }
 
-      const now = new Date();
+        const legal = ALLOWED_TRANSITIONS[order.status];
 
-      const timestamps: Partial<Record<string, Date>> = {};
-      if (toStatus === 'confirmed') timestamps.confirmedAt = now;
-      if (toStatus === 'ready') timestamps.readyAt = now;
-      if (toStatus === 'completed') timestamps.completedAt = now;
+        if (!legal.includes(toStatus)) {
+          throw HttpError.validation({
+            status: [
+              legal.length > 0
+                ? `An order that is ${order.status} can only move to: ${legal.join(', ')}.`
+                : `An order that is ${order.status} cannot change status.`,
+            ],
+          });
+        }
 
-      const updated = await tx.order.update({
-        where: { id: order.id },
-        data: {
-          status: toStatus,
-          ...timestamps,
-          cancelReason:
-            toStatus === 'cancelled' || toStatus === 'voided' ? options.reason ?? null : null,
-          statusHistory: {
-            create: {
-              fromStatus: order.status,
-              toStatus,
-              reason: options.reason ?? null,
-              changedBy: options.actorId ?? null,
+        if ((toStatus === 'cancelled' || toStatus === 'voided') && !options.reason) {
+          throw HttpError.validation({
+            reason: ['A reason is required when cancelling or voiding an order.'],
+          });
+        }
+
+        const now = new Date();
+
+        const timestamps: Partial<Record<string, Date>> = {};
+        if (toStatus === 'confirmed') timestamps.confirmedAt = now;
+        if (toStatus === 'ready') timestamps.readyAt = now;
+        if (toStatus === 'completed') timestamps.completedAt = now;
+
+        const updated = await tx.order.update({
+          where: { id: order.id },
+          data: {
+            status: toStatus,
+            ...timestamps,
+            cancelReason:
+              toStatus === 'cancelled' || toStatus === 'voided' ? options.reason ?? null : null,
+            statusHistory: {
+              create: {
+                fromStatus: order.status,
+                toStatus,
+                reason: options.reason ?? null,
+                changedBy: options.actorId ?? null,
+              },
             },
           },
-        },
-        include: orderInclude,
-      });
-
-      // ------------------------------------------------------ side effects
-      if (toStatus === 'confirmed') {
-        await kitchenService.createTicketsForOrder(tx, updated);
-        await inventoryService.commitForOrder(tx, updated, options.actorId);
-      }
-
-      if (toStatus === 'cancelled' || toStatus === 'voided') {
-        await tx.kitchenTicket.updateMany({
-          where: { orderId: order.id, status: { in: ['queued', 'preparing'] } },
-          data: { status: 'cancelled' },
+          include: orderInclude,
         });
 
-        // Only reverse stock that was actually taken. An order cancelled while
-        // still pending never reached the kitchen and never moved any.
-        if (order.status !== 'pending') {
-          await inventoryService.reverseForOrder(tx, updated, options.actorId);
+        // ------------------------------------------------------ side effects
+        if (toStatus === 'confirmed') {
+          await kitchenService.createTicketsForOrder(tx, updated);
+          await inventoryService.commitForOrder(tx, updated, options.actorId);
         }
-      }
 
-      if (['completed', 'cancelled', 'voided'].includes(toStatus) && order.diningTableId) {
-        await tx.diningTable.updateMany({
-          where: { id: order.diningTableId, restaurantId },
-          data: { status: 'available' },
-        });
-      }
+        if (toStatus === 'cancelled' || toStatus === 'voided') {
+          await tx.kitchenTicket.updateMany({
+            where: { orderId: order.id, status: { in: ['queued', 'preparing'] } },
+            data: { status: 'cancelled' },
+          });
 
-      return updated;
-    });
+          // Only reverse stock that was actually taken. An order cancelled while
+          // still pending never reached the kitchen and never moved any.
+          if (order.status !== 'pending') {
+            await inventoryService.reverseForOrder(tx, updated, options.actorId);
+          }
+        }
+
+        if (['completed', 'cancelled', 'voided'].includes(toStatus) && order.diningTableId) {
+          await tx.diningTable.updateMany({
+            where: { id: order.diningTableId, restaurantId },
+            data: { status: 'available' },
+          });
+        }
+
+        return updated;
+      },
+      { timeout: 15_000 },
+    );
   },
 };
 

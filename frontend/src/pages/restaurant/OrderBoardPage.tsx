@@ -1,18 +1,19 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Receipt } from 'lucide-react';
+import { Banknote, Printer, Receipt as ReceiptIcon } from 'lucide-react';
 import { toast } from 'sonner';
 import clsx from 'clsx';
 import { apiGet, apiPost, ApiError } from '@/api/client';
 import { endpoints } from '@/api/endpoints';
+import { useAuth } from '@/context/AuthContext';
 import { OrderStatusPill } from '@/components/ui/StatusPill';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { TextField } from '@/components/ui/TextField';
-import { formatMoney, formatRelative, humanise } from '@/utils/format';
-import type { Invoice, Order, OrderStatus, PaymentMethodConfig } from '@/types/api';
+import { formatDate, formatMoney, formatRelative, formatTime, humanise } from '@/utils/format';
+import type { Invoice, Order, OrderStatus, PaymentMethodConfig, Receipt } from '@/types/api';
 
 // A bill can only be issued once the kitchen has produced the food.
 const BILLABLE_STATUSES: OrderStatus[] = ['ready', 'served', 'completed'];
@@ -26,8 +27,10 @@ const FILTERS: Array<{ label: string; value: OrderStatus | 'all' }> = [
 ];
 
 export default function OrderBoardPage() {
+  const { can } = useAuth();
   const [filter, setFilter] = useState<OrderStatus | 'all'>('all');
   const [billingOrder, setBillingOrder] = useState<Order | null>(null);
+  const [receiptOrder, setReceiptOrder] = useState<Order | null>(null);
   const queryClient = useQueryClient();
 
   const { data: orders, isLoading } = useQuery({
@@ -49,6 +52,20 @@ export default function OrderBoardPage() {
     },
     onError: (error) => {
       toast.error(error instanceof ApiError ? error.message : 'Could not update that order.');
+    },
+  });
+
+  // One tap, full amount, cash by default - the fast lane next to the
+  // itemised Bill modal for a counter that mostly takes cash.
+  const payOrder = useMutation({
+    mutationFn: (orderId: number) =>
+      apiPost<Invoice>(endpoints.billing.pay(orderId), { idempotencyKey: crypto.randomUUID() }),
+    onSuccess: (invoice) => {
+      toast.success(`Bill ${invoice.invoiceNumber} settled in full.`);
+      queryClient.invalidateQueries({ queryKey: ['orders'] });
+    },
+    onError: (error) => {
+      toast.error(error instanceof ApiError ? error.message : 'Could not settle that order.');
     },
   });
 
@@ -124,12 +141,34 @@ export default function OrderBoardPage() {
                   </p>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center justify-end gap-2">
                   {BILLABLE_STATUSES.includes(order.status) && order.paymentStatus !== 'paid' && (
-                    <Button size="sm" variant="secondary" onClick={() => setBillingOrder(order)}>
-                      <Receipt className="h-3.5 w-3.5" /> Bill
-                    </Button>
+                    <>
+                      {can('billing.issue') && (
+                        <Button size="sm" variant="secondary" onClick={() => setBillingOrder(order)}>
+                          <ReceiptIcon className="h-3.5 w-3.5" /> Bill
+                        </Button>
+                      )}
+                      {can('billing.collect') && (
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          leadingIcon={<Banknote className="h-3.5 w-3.5" />}
+                          isLoading={payOrder.isPending && payOrder.variables === order.id}
+                          onClick={() => payOrder.mutate(order.id)}
+                        >
+                          Pay cash
+                        </Button>
+                      )}
+                    </>
                   )}
+
+                  {can('billing.view') &&
+                    (BILLABLE_STATUSES.includes(order.status) || order.paymentStatus !== 'unpaid') && (
+                      <Button size="sm" variant="ghost" onClick={() => setReceiptOrder(order)}>
+                        <Printer className="h-3.5 w-3.5" /> Receipt
+                      </Button>
+                    )}
 
                   {order.allowedNextStatuses.length > 0 && (
                     <Button
@@ -153,7 +192,7 @@ export default function OrderBoardPage() {
         </div>
       ) : (
         <EmptyState
-          icon={<Receipt className="h-6 w-6" />}
+          icon={<ReceiptIcon className="h-6 w-6" />}
           title="Nothing on the board"
           description="New orders from the counter, a QR table or the website will show up here automatically."
         />
@@ -164,6 +203,8 @@ export default function OrderBoardPage() {
         onClose={() => setBillingOrder(null)}
         onSettled={() => queryClient.invalidateQueries({ queryKey: ['orders'] })}
       />
+
+      <ReceiptModal order={receiptOrder} onClose={() => setReceiptOrder(null)} />
     </div>
   );
 }
@@ -354,6 +395,132 @@ function BillModal({
               ))}
             </div>
           )}
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+/**
+ * The printable slip for one order. Reads GET /orders/:id/receipt, which
+ * returns the order's own frozen snapshots - what it shows never changes on
+ * a reprint, even if the menu or the table label has since changed.
+ */
+function ReceiptModal({ order, onClose }: { order: Order | null; onClose: () => void }) {
+  const { data: receipt, isLoading } = useQuery({
+    queryKey: ['receipt', order?.id],
+    queryFn: () => apiGet<Receipt>(endpoints.billing.receipt(order!.id)),
+    enabled: Boolean(order),
+  });
+
+  return (
+    <Modal
+      open={Boolean(order)}
+      onClose={onClose}
+      title={order ? `Receipt · ${order.orderNumber}` : 'Receipt'}
+      size="md"
+      footer={
+        receipt && (
+          <Button leadingIcon={<Printer className="h-4 w-4" />} onClick={() => window.print()}>
+            Print
+          </Button>
+        )
+      }
+    >
+      {isLoading || !receipt ? (
+        <p className="py-6 text-center text-sm text-ink-faint">Loading the receipt…</p>
+      ) : (
+        <div id="receipt-print-area" className="numeric space-y-3 text-sm">
+          <div className="space-y-0.5 text-center">
+            <p className="font-display text-base font-semibold text-ink">{receipt.restaurant.name}</p>
+            {receipt.restaurant.address && (
+              <p className="text-xs text-ink-soft">{receipt.restaurant.address}</p>
+            )}
+            <p className="text-xs text-ink-soft">{receipt.restaurant.phone}</p>
+            <p className="text-xs text-ink-faint">{receipt.branchName}</p>
+          </div>
+
+          <div className="flex items-center justify-between border-y border-dashed border-line py-1.5">
+            <span
+              className={clsx(
+                'rounded-pill px-2.5 py-0.5 text-xs font-bold tracking-wide',
+                receipt.status === 'PAID' && 'bg-mint-soft text-mint',
+                receipt.status === 'UNPAID' && 'bg-ember-soft text-ember',
+                receipt.status === 'VOID' && 'bg-chili-soft text-chili',
+              )}
+            >
+              {receipt.status}
+            </span>
+            <span className="text-xs text-ink-soft">
+              {receipt.tokenNumber ? `Token #${receipt.tokenNumber}` : null}
+              {receipt.tokenNumber && receipt.tableNumber ? ' · ' : null}
+              {receipt.tableNumber ? `Table ${receipt.tableNumber}` : null}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-ink-soft">
+            <span>Order #{receipt.orderId}</span>
+            <span className="text-right">{formatDate(receipt.date)} {formatTime(receipt.date)}</span>
+            <span>{receipt.invoiceNumber ?? 'No bill yet'}</span>
+            <span className="text-right">{humanise(receipt.orderType)}</span>
+          </div>
+
+          <table className="w-full border-collapse text-xs">
+            <thead>
+              <tr className="border-b border-line text-ink-faint">
+                <th className="py-1 text-left font-medium">Item</th>
+                <th className="py-1 text-right font-medium">Qty</th>
+                <th className="py-1 text-right font-medium">Rate</th>
+                <th className="py-1 text-right font-medium">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {receipt.items.map((item, index) => (
+                <tr key={index} className="border-b border-line/60">
+                  <td className="py-1 pr-2 text-ink">{item.name}</td>
+                  <td className="py-1 text-right text-ink-soft">{item.quantity}</td>
+                  <td className="py-1 text-right text-ink-soft">{formatMoney(item.rate)}</td>
+                  <td className="py-1 text-right text-ink">{formatMoney(item.total)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          <div className="space-y-1 border-t border-line pt-2">
+            <div className="flex justify-between text-ink-soft">
+              <span>Sub Total</span>
+              <span>{formatMoney(receipt.subtotal)}</span>
+            </div>
+            <div className="flex justify-between text-ink-soft">
+              <span>Service Charges ({receipt.serviceChargePercent}%)</span>
+              <span>{formatMoney(receipt.serviceCharge)}</span>
+            </div>
+            {receipt.taxAmount > 0 && (
+              <div className="flex justify-between text-ink-soft">
+                <span>Tax</span>
+                <span>{formatMoney(receipt.taxAmount)}</span>
+              </div>
+            )}
+            <div className="flex justify-between border-t border-line pt-1.5 text-base font-bold text-ink">
+              <span>GRAND TOTAL</span>
+              <span>{formatMoney(receipt.grandTotal)}</span>
+            </div>
+          </div>
+
+          <div className="space-y-0.5 border-t border-dashed border-line pt-2 text-xs text-ink-soft">
+            <div className="flex justify-between">
+              <span>{humanise(receipt.orderType)}{receipt.covers ? ` · ${receipt.covers} covers` : ''}</span>
+            </div>
+            <div className="flex justify-between">
+              <span>Order taker: {receipt.orderTaker ?? '—'}</span>
+              <span>Printed {formatTime(receipt.printedAt)}</span>
+            </div>
+          </div>
+
+          <div className="space-y-0.5 border-t border-dashed border-line pt-2 text-center text-xs text-ink-faint">
+            <p>Complaints: {receipt.complaintsContact}</p>
+            <p>{receipt.footer}</p>
+          </div>
         </div>
       )}
     </Modal>

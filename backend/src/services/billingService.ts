@@ -14,6 +14,52 @@ import { commissionService } from './commissionService';
  * so the history always reconciles and every figure traces back to the document
  * that produced it.
  */
+type Tx = Prisma.TransactionClient;
+
+type OrderForInvoice = {
+  id: number;
+  branchId: number;
+  status: string;
+  subtotal: Prisma.Decimal;
+  discountAmount: Prisma.Decimal;
+  serviceCharge: Prisma.Decimal;
+  taxAmount: Prisma.Decimal;
+  grandTotal: Prisma.Decimal;
+  branch: { code: string };
+};
+
+/**
+ * Creates the invoice row for an order that has none yet. Shared by
+ * issueInvoice (an explicit "print the bill" action) and payOrder (a POS
+ * one-tap settle that issues the bill implicitly if it hasn't been already) -
+ * both must apply the same "food must be ready" gate and totals-copy rule.
+ */
+async function createInvoiceForOrder(tx: Tx, restaurantId: number, order: OrderForInvoice) {
+  if (!['ready', 'served', 'completed'].includes(order.status)) {
+    throw HttpError.conflict('A bill can only be issued once the food has been prepared.');
+  }
+
+  const invoiceNumber = await documentNumber.forInvoice(tx, order.branchId, order.branch.code);
+
+  return tx.invoice.create({
+    data: {
+      restaurantId,
+      branchId: order.branchId,
+      orderId: order.id,
+      invoiceNumber,
+      status: 'issued',
+      subtotal: order.subtotal,
+      discountAmount: order.discountAmount,
+      serviceCharge: order.serviceCharge,
+      taxAmount: order.taxAmount,
+      grandTotal: order.grandTotal,
+      // What a bill QR encodes. A customer scans it to see the bill and
+      // pay; it carries no account details of its own.
+      qrPayload: `invoice:${invoiceNumber}`,
+    },
+  });
+}
+
 export const billingService = {
   /** Issues the bill. Totals are copied from the order, not recalculated. */
   async issueInvoice(restaurantId: number, orderId: number) {
@@ -34,33 +80,180 @@ export const billingService = {
         });
       }
 
-      if (!['ready', 'served', 'completed'].includes(order.status)) {
-        throw HttpError.conflict(
-          'A bill can only be issued once the food has been prepared.',
-        );
+      const invoice = await createInvoiceForOrder(tx, restaurantId, order);
+
+      return tx.invoice.findUniqueOrThrow({ where: { id: invoice.id }, include: invoiceInclude });
+    });
+  },
+
+  /**
+   * One-tap POS settle: issues the bill if it hasn't been already, then takes
+   * full payment for whatever is still outstanding.
+   *
+   * Idempotent on idempotencyKey - a retried tap (a flaky connection, a
+   * cashier double-pressing) replays the original payment instead of erroring
+   * or, worse, taking the money twice.
+   */
+  async payOrder(
+    restaurantId: number,
+    orderId: number,
+    input: { idempotencyKey?: string; paymentMethodId?: number; actorId?: number },
+  ) {
+    return prisma.$transaction(async (tx) => {
+      const order = await tx.order.findFirst({
+        where: { id: orderId, restaurantId },
+        include: { branch: true, invoice: true },
+      });
+
+      if (!order) {
+        throw HttpError.notFound('That order does not exist.');
       }
 
-      const invoiceNumber = await documentNumber.forInvoice(tx, order.branchId, order.branch.code);
+      if (order.invoice && input.idempotencyKey) {
+        const existingPayment = await tx.payment.findFirst({
+          where: { invoiceId: order.invoice.id, idempotencyKey: input.idempotencyKey },
+        });
 
-      return tx.invoice.create({
+        if (existingPayment) {
+          const currentInvoice = await tx.invoice.findUniqueOrThrow({
+            where: { id: order.invoice.id },
+            include: invoiceInclude,
+          });
+          return { payment: existingPayment, invoice: currentInvoice };
+        }
+      }
+
+      if (order.paymentStatus === 'paid') {
+        throw HttpError.conflict('This order is already marked paid.');
+      }
+
+      const invoice = order.invoice ?? (await createInvoiceForOrder(tx, restaurantId, order));
+
+      if (invoice.status === 'void') {
+        throw HttpError.conflict('That invoice has been voided.');
+      }
+
+      const method = input.paymentMethodId
+        ? await tx.paymentMethod.findFirst({
+            where: { id: input.paymentMethodId, restaurantId, isActive: true },
+          })
+        : await tx.paymentMethod.findFirst({
+            where: { restaurantId, kind: 'cash', isActive: true },
+            orderBy: { sortOrder: 'asc' },
+          });
+
+      if (!method) {
+        throw HttpError.validation({
+          paymentMethodId: ['Pass a payment method - no active cash method is configured.'],
+        });
+      }
+
+      const outstanding = money.round(
+        money.from(invoice.grandTotal).sub(money.from(invoice.paidAmount)),
+      );
+
+      if (outstanding.lte(0)) {
+        throw HttpError.conflict('This order is already marked paid.');
+      }
+
+      const payment = await tx.payment.create({
         data: {
           restaurantId,
-          branchId: order.branchId,
-          orderId: order.id,
-          invoiceNumber,
-          status: 'issued',
-          subtotal: order.subtotal,
-          discountAmount: order.discountAmount,
-          serviceCharge: order.serviceCharge,
-          taxAmount: order.taxAmount,
-          grandTotal: order.grandTotal,
-          // What a bill QR encodes. A customer scans it to see the bill and
-          // pay; it carries no account details of its own.
-          qrPayload: `invoice:${invoiceNumber}`,
+          invoiceId: invoice.id,
+          paymentMethodId: method.id,
+          amount: outstanding,
+          changeAmount: money.zero(),
+          receivedBy: input.actorId ?? null,
+          idempotencyKey: input.idempotencyKey ?? null,
         },
+      });
+
+      const paidAmount = money.round(money.from(invoice.paidAmount).add(outstanding));
+
+      const updatedInvoice = await tx.invoice.update({
+        where: { id: invoice.id },
+        data: { paidAmount, status: 'paid', paidAt: new Date() },
         include: invoiceInclude,
       });
+
+      await tx.order.update({
+        where: { id: order.id },
+        data: { paymentStatus: 'paid' },
+      });
+
+      // Commission accrues only on a fully-paid bill, per commissionService's
+      // rule - never on an order that is still owed money.
+      await commissionService.accrueForInvoice(tx, updatedInvoice, updatedInvoice.order.businessDate);
+
+      return { payment, invoice: updatedInvoice };
+    }, { timeout: 15_000 });
+  },
+
+  /**
+   * The printable receipt for an order. Reads the order's own frozen
+   * snapshots (subtotal, service charge percent + amount, table, token,
+   * order taker) rather than recomputing anything - a reprint must always
+   * show exactly what the original said.
+   */
+  async getReceipt(restaurantId: number, orderId: number) {
+    const order = await prisma.order.findFirst({
+      where: { id: orderId, restaurantId },
+      include: {
+        branch: { select: { name: true } },
+        diningTable: { select: { label: true } },
+        items: true,
+        invoice: {
+          include: { payments: { include: { method: { select: { name: true, kind: true } } } } },
+        },
+      },
     });
+
+    if (!order) {
+      throw HttpError.notFound('That order does not exist.');
+    }
+
+    const restaurant = await prisma.restaurant.findUniqueOrThrow({
+      where: { id: restaurantId },
+      select: { name: true, addressLine: true, city: true, contactPhone: true },
+    });
+
+    const status = order.invoice?.status === 'void'
+      ? 'VOID'
+      : order.paymentStatus === 'paid'
+        ? 'PAID'
+        : 'UNPAID';
+
+    return {
+      restaurant: {
+        name: restaurant.name,
+        address: [restaurant.addressLine, restaurant.city].filter(Boolean).join(', ') || null,
+        phone: restaurant.contactPhone,
+      },
+      status,
+      tokenNumber: order.tokenNumber,
+      tableNumber: order.tableNumber ?? order.diningTable?.label ?? null,
+      orderId: order.id,
+      date: order.placedAt,
+      invoiceNumber: order.invoice?.invoiceNumber ?? null,
+      orderType: order.orderType,
+      branchName: order.branch.name,
+      items: order.items.map((item) => ({
+        name: item.variantName ? `${item.productName} (${item.variantName})` : item.productName,
+        quantity: item.quantity,
+        rate: Number(item.unitPrice),
+        total: Number(item.lineTotal),
+      })),
+      subtotal: Number(order.subtotal),
+      serviceChargePercent: Number(order.serviceChargePercent),
+      serviceCharge: Number(order.serviceCharge),
+      taxAmount: Number(order.taxAmount),
+      grandTotal: Number(order.grandTotal),
+      covers: order.guestCount,
+      orderTaker: order.orderTakerName,
+      printedAt: new Date(),
+      complaintsContact: restaurant.contactPhone,
+      footer: 'Software By Digitalkeez',
+    };
   },
 
   /**

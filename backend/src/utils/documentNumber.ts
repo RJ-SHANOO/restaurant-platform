@@ -30,12 +30,18 @@ function startOfToday(): Date {
 }
 
 export const documentNumber = {
-  async forOrder(tx: Tx, branchId: number, branchCode: string): Promise<string> {
+  /**
+   * Returns both the full order number and its bare daily sequence. The
+   * sequence doubles as the order's tokenNumber - the short count called out
+   * at pickup, as opposed to the long number a receipt prints.
+   */
+  async forOrder(tx: Tx, branchId: number, branchCode: string): Promise<{ orderNumber: string; sequence: number }> {
     const todayCount = await tx.order.count({
       where: { branchId, createdAt: { gte: startOfToday() } },
     });
 
-    return `${branchCode}-${datePart()}-${String(todayCount + 1).padStart(4, '0')}`;
+    const sequence = todayCount + 1;
+    return { orderNumber: `${branchCode}-${datePart()}-${String(sequence).padStart(4, '0')}`, sequence };
   },
 
   async forInvoice(tx: Tx, branchId: number, branchCode: string): Promise<string> {

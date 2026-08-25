@@ -10,6 +10,11 @@ const paymentSchema = z.object({
   reference: z.string().max(120).optional(),
 });
 
+const paySchema = z.object({
+  idempotencyKey: z.string().max(64).optional(),
+  paymentMethodId: z.number().int().positive().optional(),
+});
+
 const refundSchema = z.object({
   amount: z.number().positive(),
   reasonCode: z.enum([
@@ -49,6 +54,31 @@ export const billingController = {
         serialiseInvoice(invoice),
         invoice.status === 'paid' ? 'Bill settled in full.' : 'Payment recorded.',
       );
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  async pay(req: Request, res: Response, next: NextFunction) {
+    try {
+      const input = paySchema.parse(req.body);
+
+      const { invoice } = await billingService.payOrder(
+        req.tenantId!,
+        Number(req.params.orderId),
+        { ...input, actorId: req.actor!.id },
+      );
+
+      return apiResponse.created(res, serialiseInvoice(invoice), 'Order marked paid.');
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  async receipt(req: Request, res: Response, next: NextFunction) {
+    try {
+      const receipt = await billingService.getReceipt(req.tenantId!, Number(req.params.orderId));
+      return apiResponse.success(res, receipt);
     } catch (error) {
       next(error);
     }

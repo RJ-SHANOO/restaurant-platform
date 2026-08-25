@@ -113,6 +113,8 @@ export const endpoints = {
 
   billing: {
     issueInvoice: (orderId: number) => `/orders/${orderId}/invoice`,
+    pay: (orderId: number) => `/orders/${orderId}/pay`,
+    receipt: (orderId: number) => `/orders/${orderId}/receipt`,
     invoice: (invoiceId: number) => `/invoices/${invoiceId}`,
     capturePayment: (invoiceId: number) => `/invoices/${invoiceId}/payments`,
     refund: (invoiceId: number) => `/invoices/${invoiceId}/refunds`,

@@ -95,6 +95,8 @@ tenant.post('/orders/:id/transition', orderController.transition);
 
 // Billing
 tenant.post('/orders/:orderId/invoice', requirePermission('billing.issue'), billingController.issueInvoice);
+tenant.post('/orders/:orderId/pay', requirePermission('billing.collect'), billingController.pay);
+tenant.get('/orders/:orderId/receipt', requirePermission('billing.view'), billingController.receipt);
 tenant.get('/invoices/:invoiceId', requirePermission('billing.view'), billingController.show);
 tenant.post('/invoices/:invoiceId/payments', requirePermission('billing.collect'), billingController.recordPayment);
 tenant.post('/invoices/:invoiceId/refunds', requirePermission('billing.refund'), billingController.issueRefund);

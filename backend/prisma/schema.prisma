@@ -587,15 +587,24 @@ model Order {
   customerNote String? @map("customer_note") @db.VarChar(500)
   cancelReason String? @map("cancel_reason") @db.VarChar(255)
 
+  // Receipt snapshots, frozen at creation like everything else below - a table
+  // renamed or a shift-change after the fact must never change what a reprint
+  // shows. tokenNumber is the short per-branch, per-day counter called out at
+  // pickup; tableNumber is the dining table's label copied in, not joined.
+  tokenNumber     Int?    @map("token_number")
+  tableNumber     String? @map("table_number") @db.VarChar(40)
+  orderTakerName  String? @map("order_taker_name") @db.VarChar(150)
+
   // Frozen snapshots. A later menu price change never rewrites an order that
   // has already been placed.
-  subtotal       Decimal @default(0) @db.Decimal(12, 2)
-  discountAmount Decimal @default(0) @map("discount_amount") @db.Decimal(12, 2)
-  serviceCharge  Decimal @default(0) @map("service_charge") @db.Decimal(12, 2)
-  taxAmount      Decimal @default(0) @map("tax_amount") @db.Decimal(12, 2)
-  deliveryFee    Decimal @default(0) @map("delivery_fee") @db.Decimal(12, 2)
-  tipAmount      Decimal @default(0) @map("tip_amount") @db.Decimal(12, 2)
-  grandTotal     Decimal @default(0) @map("grand_total") @db.Decimal(12, 2)
+  subtotal             Decimal @default(0) @db.Decimal(12, 2)
+  discountAmount       Decimal @default(0) @map("discount_amount") @db.Decimal(12, 2)
+  serviceChargePercent Decimal @default(0) @map("service_charge_percent") @db.Decimal(5, 2)
+  serviceCharge        Decimal @default(0) @map("service_charge") @db.Decimal(12, 2)
+  taxAmount            Decimal @default(0) @map("tax_amount") @db.Decimal(12, 2)
+  deliveryFee          Decimal @default(0) @map("delivery_fee") @db.Decimal(12, 2)
+  tipAmount            Decimal @default(0) @map("tip_amount") @db.Decimal(12, 2)
+  grandTotal           Decimal @default(0) @map("grand_total") @db.Decimal(12, 2)
 
   // A replayed key returns the original order instead of creating a second
   // one. This is what makes an offline queue safe to flush twice.
@@ -1031,12 +1040,18 @@ model Payment {
   state           PaymentState @default(captured)
   receivedBy      Int?         @map("received_by")
 
+  // Lets a retried "mark as paid" request return the payment it already made
+  // instead of erroring or double-charging - the same replay guard Order uses
+  // for idempotencyKey.
+  idempotencyKey String? @map("idempotency_key") @db.VarChar(64)
+
   createdAt DateTime @default(now()) @map("created_at")
 
   restaurant Restaurant    @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
   invoice    Invoice       @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
   method     PaymentMethod @relation(fields: [paymentMethodId], references: [id], onDelete: Restrict)
 
+  @@unique([invoiceId, idempotencyKey])
   @@index([invoiceId])
   @@map("payments")
 }

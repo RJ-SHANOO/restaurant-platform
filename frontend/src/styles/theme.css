@@ -255,6 +255,30 @@ html[data-theme='dark'] {
   }
 }
 
+/*
+ * Printing a receipt or a table's QR code must print only that slip, not the
+ * dashboard chrome around it. Scoped by id rather than by component tree
+ * position, since a modal renders in the same document flow as the page
+ * behind it.
+ */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #receipt-print-area,
+  #receipt-print-area *,
+  #qr-print-area,
+  #qr-print-area * {
+    visibility: visible;
+  }
+  #receipt-print-area,
+  #qr-print-area {
+    position: absolute;
+    inset: 0;
+    margin: 0 auto;
+  }
+}
+
 @layer utilities {
   .stagger-children > * {
     @apply animate-rise-in;

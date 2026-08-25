@@ -334,6 +334,9 @@ export interface Order {
   totals: OrderTotals;
   paymentStatus: 'unpaid' | 'partial' | 'paid' | 'refunded';
   customerNote: string | null;
+  tokenNumber: number | null;
+  tableNumber: string | null;
+  orderTakerName: string | null;
   items?: OrderItem[];
   allowedNextStatuses: OrderStatus[];
   timestamps: {
@@ -342,6 +345,37 @@ export interface Order {
     readyAt: string | null;
     completedAt: string | null;
   };
+}
+
+export interface ReceiptItem {
+  name: string;
+  quantity: number;
+  rate: number;
+  total: number;
+}
+
+/** The printable slip for GET /orders/:id/receipt. */
+export interface Receipt {
+  restaurant: { name: string; address: string | null; phone: string };
+  status: 'PAID' | 'UNPAID' | 'VOID';
+  tokenNumber: number | null;
+  tableNumber: string | null;
+  orderId: number;
+  date: string;
+  invoiceNumber: string | null;
+  orderType: 'dine_in' | 'takeaway' | 'delivery';
+  branchName: string;
+  items: ReceiptItem[];
+  subtotal: number;
+  serviceChargePercent: number;
+  serviceCharge: number;
+  taxAmount: number;
+  grandTotal: number;
+  covers: number | null;
+  orderTaker: string | null;
+  printedAt: string;
+  complaintsContact: string;
+  footer: string;
 }
 
 export interface InvoicePayment {

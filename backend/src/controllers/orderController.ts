@@ -16,6 +16,7 @@ const createOrderSchema = z.object({
   guestCount: z.number().int().positive().max(100).optional(),
   customerNote: z.string().max(500).optional(),
   idempotencyKey: z.string().max(64).optional(),
+  orderTakerName: z.string().max(150).optional(),
   items: z
     .array(
       z.object({
@@ -108,7 +109,10 @@ export const orderController = {
 
       const order = await orderService.create(
         req.tenantId!,
-        { ...input, channel: 'pos' },
+        // The order taker defaults to whoever is signed in at the till; a POS
+        // operator can still attribute the order to someone else (a waiter
+        // taking a table) by naming them explicitly.
+        { ...input, channel: 'pos', orderTakerName: input.orderTakerName?.trim() || req.actor!.fullName },
         req.actor!.id,
       );
 
@@ -165,9 +169,13 @@ export function serialiseOrder(order: Record<string, any>) {
     guestCount: order.guestCount,
     customerNote: order.customerNote,
     cancelReason: order.cancelReason,
+    tokenNumber: order.tokenNumber,
+    tableNumber: order.tableNumber,
+    orderTakerName: order.orderTakerName,
     totals: {
       subtotal: Number(order.subtotal),
       discountAmount: Number(order.discountAmount),
+      serviceChargePercent: Number(order.serviceChargePercent),
       serviceCharge: Number(order.serviceCharge),
       taxAmount: Number(order.taxAmount),
       deliveryFee: Number(order.deliveryFee),
