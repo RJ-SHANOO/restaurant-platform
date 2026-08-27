@@ -1,12 +1,14 @@
 import { prisma } from '../config/prisma';
 
 /**
- * A record of what the Super Admin did, and to which restaurant.
+ * A record of who did something sensitive, and to which restaurant.
  *
- * Scoped to platform-console actions for now - creating a restaurant,
- * changing its terms or status, running a settlement. A tenant's own
- * internal activity (orders, refunds, staff changes) is not logged here;
- * that would be a much larger, separate piece of work.
+ * Two kinds of caller: platform-console actions (creating a restaurant,
+ * changing its terms or status, running a settlement) where restaurantId
+ * names the tenant acted upon, and tenant-level sensitive actions a
+ * restaurant's own staff take (cancelling or voiding an order, issuing a
+ * refund) where restaurantId is the actor's own tenant. Both land in the
+ * same table so "what happened to this restaurant" is one query either way.
  */
 export const auditLogService = {
   async record(params: {

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { apiResponse, HttpError } from '../utils/apiResponse';
 import { assertBranchAccess } from '../middleware/authorise';
 import { ALLOWED_TRANSITIONS, orderInclude, orderService } from '../services/orderService';
+import { auditLogService } from '../services/auditLogService';
 
 const LIVE_STATUSES = ['pending', 'confirmed', 'preparing', 'ready', 'served'] as const;
 
@@ -147,6 +148,21 @@ export const orderController = {
         actorId: req.actor!.id,
         reason,
       });
+
+      // Cancelling and voiding are the two order-lifecycle moves the standing
+      // audit trail (OrderStatusHistory) isn't enough for on its own - they're
+      // sensitive enough to want a single cross-entity log a restaurant owner
+      // can query without joining every table that might have touched money.
+      if (status === 'cancelled' || status === 'voided') {
+        await auditLogService.record({
+          actorId: req.actor!.id,
+          restaurantId: req.tenantId!,
+          action: status === 'voided' ? 'order.voided' : 'order.cancelled',
+          subjectType: 'Order',
+          subjectId: order.id,
+          newValues: { status, reason },
+        });
+      }
 
       return apiResponse.success(res, serialiseOrder(order), `Order marked ${status}.`);
     } catch (error) {

@@ -309,8 +309,11 @@ export const platformController = {
   },
 
   /**
-   * What the Super Admin has done, and to which restaurant. Scoped to
-   * platform-console actions - see auditLogService for why.
+   * Everything in the cross-entity audit trail: platform-console actions and,
+   * since a restaurant has no equivalent screen of its own yet, a tenant's own
+   * sensitive actions (order cancellations and voids, refunds) too - see
+   * auditLogService for the shape. Filterable by restaurant; not by actor kind,
+   * so a platform admin sees both in one feed.
    */
   async activity(req: Request, res: Response, next: NextFunction) {
     try {
