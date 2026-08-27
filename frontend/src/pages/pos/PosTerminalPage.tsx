@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Minus, Plus, Search, ShoppingCart, Trash2, UtensilsCrossed } from 'lucide-react';
 import { toast } from 'sonner';
@@ -18,6 +18,33 @@ interface CartLine {
   kitchenNote?: string;
 }
 
+/** Shape menu/products actually returns - basePrice, not price. */
+interface CatalogProduct {
+  id: number;
+  name: string;
+  description: string | null;
+  imageUrl: string | null;
+  basePrice: number;
+  preparationMinutes: number;
+  isAvailable: boolean;
+  isFeatured: boolean;
+  category?: { id: number; name: string } | null;
+}
+
+function toMenuProduct(product: CatalogProduct): MenuProduct {
+  return {
+    id: product.id,
+    name: product.name,
+    description: product.description,
+    price: product.basePrice,
+    imageUrl: product.imageUrl,
+    isFeatured: product.isFeatured,
+    isAvailable: product.isAvailable,
+    prepMinutes: product.preparationMinutes,
+    category: product.category ?? undefined,
+  };
+}
+
 /**
  * The counter screen.
  *
@@ -34,9 +61,20 @@ export default function PosTerminalPage() {
   const [cart, setCart] = useState<CartLine[]>([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
 
+  // One key per order attempt, not per request: a retry of the same "Send
+  // order" (a slow network, a cashier tapping twice) must replay under the
+  // same key so the server recognises it, rather than minting a fresh key
+  // that defeats the replay guard. Only rotated after a successful create.
+  const idempotencyKeyRef = useRef(crypto.randomUUID());
+
   const { data: products } = useQuery({
     queryKey: ['pos', 'menu'],
-    queryFn: () => apiGet<MenuProduct[]>('/products', { perPage: 200 }),
+    queryFn: async () => {
+      const items = await apiGet<CatalogProduct[]>(endpoints.menu.products, {
+        isAvailable: true,
+      });
+      return items.map(toMenuProduct);
+    },
   });
 
   const filtered = useMemo(() => {
@@ -76,8 +114,7 @@ export default function PosTerminalPage() {
       apiPost<Order>(endpoints.orders.list, {
         branchId: user?.scope.branchId,
         orderType: 'dine_in',
-        // A fresh key per submission: replaying it can never double-charge.
-        idempotencyKey: crypto.randomUUID(),
+        idempotencyKey: idempotencyKeyRef.current,
         items: cart.map((line) => ({
           productId: line.product.id,
           quantity: line.quantity,
@@ -88,6 +125,9 @@ export default function PosTerminalPage() {
       toast.success(`Order ${order.orderNumber} sent to the counter queue.`);
       setCart([]);
       setIsCartOpen(false);
+      // This key now belongs to the order that was just created. The next
+      // "Send order" is a different order and needs a key of its own.
+      idempotencyKeyRef.current = crypto.randomUUID();
       queryClient.invalidateQueries({ queryKey: ['orders'] });
     },
     onError: (error) =>
