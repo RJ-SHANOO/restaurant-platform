@@ -29,6 +29,7 @@ export const kitchenController = {
         include: {
           items: true,
           station: { select: { id: true, name: true } },
+          order: { select: { orderNumber: true } },
         },
         // Rush first, then oldest. A chef should never have to sort the rail.
         orderBy: [{ priority: 'desc' }, { createdAt: 'asc' }],
@@ -61,7 +62,11 @@ export const kitchenController = {
           ...(status === 'preparing' && !ticket.startedAt ? { startedAt: now } : {}),
           ...(status === 'ready' ? { readyAt: now } : {}),
         },
-        include: { items: true, station: { select: { id: true, name: true } } },
+        include: {
+          items: true,
+          station: { select: { id: true, name: true } },
+          order: { select: { orderNumber: true } },
+        },
       });
 
       return apiResponse.success(res, serialiseTicket(updated), 'Ticket updated.');
@@ -102,25 +107,28 @@ function serialiseTicket(ticket: Record<string, any>) {
   return {
     id: ticket.id,
     ticketNumber: ticket.ticketNumber,
-    orderId: ticket.orderId,
-    station: ticket.station,
+    orderNumber: ticket.order.orderNumber,
+    orderType: ticket.orderTypeLabel,
+    tableLabel: ticket.tableLabel,
+    station: ticket.station?.name ?? null,
     status: ticket.status,
     priority: ticket.priority,
-    tableLabel: ticket.tableLabel,
-    orderTypeLabel: ticket.orderTypeLabel,
-    note: ticket.note,
-    targetMinutes: ticket.targetMinutes,
-    urgency,
+    // elapsedMinutes is the value as of this fetch - the display re-derives it
+    // every second from queuedAt so the ageing bar moves between polls too.
+    timing: {
+      queuedAt: ticket.createdAt,
+      elapsedMinutes: urgency.elapsedMinutes,
+      targetMinutes: ticket.targetMinutes,
+      urgency: urgency.level,
+    },
     items: ticket.items?.map((item: Record<string, any>) => ({
       id: item.id,
       productName: item.productName,
       variantName: item.variantName,
       quantity: item.quantity,
-      note: item.note,
-      isDone: item.isDone,
+      kitchenNote: item.note,
+      status: item.isDone ? 'done' : 'pending',
     })),
-    createdAt: ticket.createdAt,
-    startedAt: ticket.startedAt,
-    readyAt: ticket.readyAt,
+    generalNote: ticket.note,
   };
 }

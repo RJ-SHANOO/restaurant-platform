@@ -20,8 +20,15 @@ interface KitchenTicketCardProps {
  * never what it sold for.
  */
 export function KitchenTicketCard({ ticket, onAdvance }: KitchenTicketCardProps) {
-  const { elapsedMinutes, targetMinutes, urgency } = ticket.timing;
-  const fillPercentage = Math.min(100, (elapsedMinutes / Math.max(targetMinutes, 1)) * 100);
+  const { queuedAt, targetMinutes } = ticket.timing;
+
+  // Derived from queuedAt on every render, not read from the last poll - the
+  // parent re-renders this every second so the bar moves smoothly instead of
+  // jumping in ten-second steps.
+  const elapsedMinutes = Math.floor((Date.now() - new Date(queuedAt).getTime()) / 60_000);
+  const ratio = elapsedMinutes / Math.max(targetMinutes, 1);
+  const urgency = ratio >= 1 ? 'overdue' : ratio >= 0.7 ? 'warning' : 'on_time';
+  const fillPercentage = Math.min(100, ratio * 100);
 
   const nextStatus = ticket.status === 'queued' ? 'preparing' : 'ready';
   const actionLabel = ticket.status === 'queued' ? 'Start cooking' : 'Mark ready';
