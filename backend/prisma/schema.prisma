@@ -1066,11 +1066,17 @@ model Refund {
   restockedInventory Boolean @default(false) @map("restocked_inventory")
   issuedBy           Int?    @map("issued_by")
 
+  // Lets a retried refund request return the refund it already made instead
+  // of erroring or, worse, giving the money back twice - the same replay
+  // guard Payment uses for idempotencyKey.
+  idempotencyKey String? @map("idempotency_key") @db.VarChar(64)
+
   createdAt DateTime @default(now()) @map("created_at")
 
   restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
   invoice    Invoice    @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
 
+  @@unique([invoiceId, idempotencyKey])
   @@index([invoiceId])
   @@map("refunds")
 }

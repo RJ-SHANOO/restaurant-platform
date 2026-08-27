@@ -2,12 +2,14 @@ import type { NextFunction, Request, Response } from 'express';
 import { z } from 'zod';
 import { apiResponse } from '../utils/apiResponse';
 import { billingService } from '../services/billingService';
+import { auditLogService } from '../services/auditLogService';
 
 const paymentSchema = z.object({
   paymentMethodId: z.number().int().positive(),
   amount: z.number().positive(),
   tenderedAmount: z.number().positive().optional(),
   reference: z.string().max(120).optional(),
+  idempotencyKey: z.string().max(64).optional(),
 });
 
 const paySchema = z.object({
@@ -23,6 +25,7 @@ const refundSchema = z.object({
   ]),
   reasonNote: z.string().max(255).optional(),
   restockedInventory: z.boolean().optional(),
+  idempotencyKey: z.string().max(64).optional(),
 });
 
 export const billingController = {
@@ -88,11 +91,26 @@ export const billingController = {
     try {
       const input = refundSchema.parse(req.body);
 
-      const { invoice } = await billingService.issueRefund(
+      const { refund, invoice } = await billingService.issueRefund(
         req.tenantId!,
         Number(req.params.invoiceId),
         { ...input, issuedBy: req.actor!.id },
       );
+
+      // Giving money back is sensitive enough to want its own entry in the
+      // cross-entity log, on top of the Refund row itself.
+      await auditLogService.record({
+        actorId: req.actor!.id,
+        restaurantId: req.tenantId!,
+        action: 'invoice.refunded',
+        subjectType: 'Invoice',
+        subjectId: invoice.id,
+        newValues: {
+          refundId: refund.id,
+          amount: Number(refund.amount),
+          reasonCode: refund.reasonCode,
+        },
+      });
 
       return apiResponse.created(res, serialiseInvoice(invoice), 'Refund recorded.');
     } catch (error) {

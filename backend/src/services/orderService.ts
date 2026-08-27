@@ -77,6 +77,34 @@ export const orderService = {
       }
     }
 
+    try {
+      return await orderService.createAttempt(restaurantId, input, actorId);
+    } catch (error) {
+      // Two submissions with the same key arrived close enough together that
+      // both passed the check above before either committed. The unique
+      // index on (branchId, idempotencyKey) is what actually stopped the
+      // duplicate order; this just gives the loser the order the winner
+      // created, instead of a raw conflict.
+      if (
+        input.idempotencyKey &&
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        const existing = await prisma.order.findFirst({
+          where: { branchId: input.branchId, idempotencyKey: input.idempotencyKey },
+          include: orderInclude,
+        });
+
+        if (existing) {
+          return existing;
+        }
+      }
+
+      throw error;
+    }
+  },
+
+  async createAttempt(restaurantId: number, input: CreateOrderInput, actorId?: number) {
     return prisma.$transaction(
       async (tx) => {
         const branch = await tx.branch.findFirst({
@@ -254,6 +282,16 @@ export const orderService = {
   ) {
     return prisma.$transaction(
       async (tx) => {
+        // Locks the row before anything reads it. Two transitions racing on
+        // the same order (a double-tapped "Confirm", a retried request) would
+        // otherwise both read the same starting status, both pass the check
+        // below, and both run the side effects further down - a second full
+        // set of kitchen tickets, stock deducted twice. The second call now
+        // queues behind the first and re-reads the status the first one left
+        // behind, so it either no-ops cleanly or is rejected as illegal,
+        // never repeats what the first already did.
+        await tx.$queryRaw`SELECT id FROM orders WHERE id = ${orderId} FOR UPDATE`;
+
         const order = await tx.order.findFirst({
           where: { id: orderId, restaurantId },
           include: { branch: true, items: true },

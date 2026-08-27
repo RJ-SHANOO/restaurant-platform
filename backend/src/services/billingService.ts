@@ -99,6 +99,48 @@ export const billingService = {
     orderId: number,
     input: { idempotencyKey?: string; paymentMethodId?: number; actorId?: number },
   ) {
+    try {
+      return await this.payOrderAttempt(restaurantId, orderId, input);
+    } catch (error) {
+      // The counterpart to the in-transaction check below: two taps close
+      // enough together both passed it before either committed. The unique
+      // index on (invoiceId, idempotencyKey) is what actually stopped the
+      // double charge; this just gives the loser the same result the winner
+      // got, instead of a raw conflict.
+      if (
+        input.idempotencyKey &&
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        const order = await prisma.order.findFirst({
+          where: { id: orderId, restaurantId },
+          select: { invoice: { select: { id: true } } },
+        });
+
+        if (order?.invoice) {
+          const existingPayment = await prisma.payment.findFirst({
+            where: { invoiceId: order.invoice.id, idempotencyKey: input.idempotencyKey },
+          });
+
+          if (existingPayment) {
+            const currentInvoice = await prisma.invoice.findUniqueOrThrow({
+              where: { id: order.invoice.id },
+              include: invoiceInclude,
+            });
+            return { payment: existingPayment, invoice: currentInvoice };
+          }
+        }
+      }
+
+      throw error;
+    }
+  },
+
+  async payOrderAttempt(
+    restaurantId: number,
+    orderId: number,
+    input: { idempotencyKey?: string; paymentMethodId?: number; actorId?: number },
+  ) {
     return prisma.$transaction(async (tx) => {
       const order = await tx.order.findFirst({
         where: { id: orderId, restaurantId },
@@ -260,7 +302,11 @@ export const billingService = {
    * Records money received.
    *
    * Overpayment is rejected rather than quietly accepted - a till that accepts
-   * more than the bill produces a figure nobody can reconcile at close.
+   * more than the bill produces a figure nobody can reconcile at close. A
+   * split bill is several distinct payments, so idempotency here is per
+   * tender: replaying the same key returns that same tender's payment rather
+   * than either erroring or - the dangerous failure mode - recording the
+   * money twice.
    */
   async recordPayment(
     restaurantId: number,
@@ -271,101 +317,151 @@ export const billingService = {
       tenderedAmount?: number | Prisma.Decimal;
       reference?: string;
       receivedBy?: number;
+      idempotencyKey?: string;
     },
   ) {
-    return prisma.$transaction(async (tx) => {
-      const invoice = await tx.invoice.findFirst({
-        where: { id: invoiceId, restaurantId },
-        include: { payments: true },
-      });
-
-      if (!invoice) {
-        throw HttpError.notFound('That invoice does not exist.');
-      }
-
-      if (invoice.status === 'void') {
-        throw HttpError.conflict('That invoice has been voided.');
-      }
-
-      const method = await tx.paymentMethod.findFirst({
-        where: { id: input.paymentMethodId, restaurantId, isActive: true },
-      });
-
-      if (!method) {
-        throw HttpError.validation({
-          paymentMethodId: ['That payment method is not available.'],
+    try {
+      // commissionService's run-locking below (SELECT ... FOR UPDATE, and a
+      // second lookup when the original run has already closed) can outrun
+      // Prisma's 5-second default interactive-transaction timeout - the same
+      // reason payOrder carries this same override.
+      return await prisma.$transaction(async (tx) => {
+        const invoice = await tx.invoice.findFirst({
+          where: { id: invoiceId, restaurantId },
+          include: { payments: true },
         });
-      }
 
-      if (method.requiresReference && !input.reference?.trim()) {
-        throw HttpError.validation({
-          reference: [`${method.name} needs a transaction reference.`],
+        if (!invoice) {
+          throw HttpError.notFound('That invoice does not exist.');
+        }
+
+        if (input.idempotencyKey) {
+          const existingPayment = invoice.payments.find(
+            (payment) => payment.idempotencyKey === input.idempotencyKey,
+          );
+
+          if (existingPayment) {
+            const currentInvoice = await tx.invoice.findUniqueOrThrow({
+              where: { id: invoice.id },
+              include: invoiceInclude,
+            });
+            return { payment: existingPayment, invoice: currentInvoice };
+          }
+        }
+
+        if (invoice.status === 'void') {
+          throw HttpError.conflict('That invoice has been voided.');
+        }
+
+        const method = await tx.paymentMethod.findFirst({
+          where: { id: input.paymentMethodId, restaurantId, isActive: true },
         });
-      }
 
-      const amount = money.round(money.from(input.amount));
+        if (!method) {
+          throw HttpError.validation({
+            paymentMethodId: ['That payment method is not available.'],
+          });
+        }
 
-      if (amount.lte(0)) {
-        throw HttpError.validation({ amount: ['Amount must be more than zero.'] });
-      }
+        if (method.requiresReference && !input.reference?.trim()) {
+          throw HttpError.validation({
+            reference: [`${method.name} needs a transaction reference.`],
+          });
+        }
 
-      const outstanding = money.round(
-        money.from(invoice.grandTotal).sub(money.from(invoice.paidAmount)),
-      );
+        const amount = money.round(money.from(input.amount));
 
-      if (amount.gt(outstanding)) {
-        throw HttpError.validation({
-          amount: [`That is more than the ${outstanding.toString()} still owed.`],
+        if (amount.lte(0)) {
+          throw HttpError.validation({ amount: ['Amount must be more than zero.'] });
+        }
+
+        const outstanding = money.round(
+          money.from(invoice.grandTotal).sub(money.from(invoice.paidAmount)),
+        );
+
+        if (amount.gt(outstanding)) {
+          throw HttpError.validation({
+            amount: [`That is more than the ${outstanding.toString()} still owed.`],
+          });
+        }
+
+        const tendered = input.tenderedAmount ? money.from(input.tenderedAmount) : null;
+        const change = tendered && tendered.gt(amount) ? money.round(tendered.sub(amount)) : money.zero();
+
+        const payment = await tx.payment.create({
+          data: {
+            restaurantId,
+            invoiceId: invoice.id,
+            paymentMethodId: method.id,
+            amount,
+            tenderedAmount: tendered,
+            changeAmount: change,
+            reference: input.reference?.trim() || null,
+            receivedBy: input.receivedBy ?? null,
+            idempotencyKey: input.idempotencyKey ?? null,
+          },
         });
+
+        const paidAmount = money.round(money.from(invoice.paidAmount).add(amount));
+        const isFullyPaid = paidAmount.gte(money.from(invoice.grandTotal));
+
+        const updated = await tx.invoice.update({
+          where: { id: invoice.id },
+          data: {
+            paidAmount,
+            status: isFullyPaid ? 'paid' : invoice.status,
+            paidAt: isFullyPaid ? new Date() : invoice.paidAt,
+          },
+          include: invoiceInclude,
+        });
+
+        await tx.order.update({
+          where: { id: invoice.orderId },
+          data: { paymentStatus: isFullyPaid ? 'paid' : 'partial' },
+        });
+
+        // Commission accrues only on a fully-paid bill. An order that is
+        // cancelled or never paid must never generate platform revenue.
+        if (isFullyPaid) {
+          await commissionService.accrueForInvoice(tx, updated, updated.order.businessDate);
+        }
+
+        return { payment, invoice: updated };
+      }, { timeout: 15_000 });
+    } catch (error) {
+      // Two requests for the same tender arrived close enough together that
+      // both passed the in-transaction check above before either committed.
+      // The unique index on (invoiceId, idempotencyKey) is what actually
+      // stopped the double charge; this just makes the loser see the same
+      // success the winner did, instead of a raw conflict.
+      if (
+        input.idempotencyKey &&
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        const existingPayment = await prisma.payment.findFirst({
+          where: { invoiceId, idempotencyKey: input.idempotencyKey },
+        });
+
+        if (existingPayment) {
+          const currentInvoice = await prisma.invoice.findUniqueOrThrow({
+            where: { id: invoiceId },
+            include: invoiceInclude,
+          });
+          return { payment: existingPayment, invoice: currentInvoice };
+        }
       }
 
-      const tendered = input.tenderedAmount ? money.from(input.tenderedAmount) : null;
-      const change = tendered && tendered.gt(amount) ? money.round(tendered.sub(amount)) : money.zero();
-
-      const payment = await tx.payment.create({
-        data: {
-          restaurantId,
-          invoiceId: invoice.id,
-          paymentMethodId: method.id,
-          amount,
-          tenderedAmount: tendered,
-          changeAmount: change,
-          reference: input.reference?.trim() || null,
-          receivedBy: input.receivedBy ?? null,
-        },
-      });
-
-      const paidAmount = money.round(money.from(invoice.paidAmount).add(amount));
-      const isFullyPaid = paidAmount.gte(money.from(invoice.grandTotal));
-
-      const updated = await tx.invoice.update({
-        where: { id: invoice.id },
-        data: {
-          paidAmount,
-          status: isFullyPaid ? 'paid' : invoice.status,
-          paidAt: isFullyPaid ? new Date() : invoice.paidAt,
-        },
-        include: invoiceInclude,
-      });
-
-      await tx.order.update({
-        where: { id: invoice.orderId },
-        data: { paymentStatus: isFullyPaid ? 'paid' : 'partial' },
-      });
-
-      // Commission accrues only on a fully-paid bill. An order that is
-      // cancelled or never paid must never generate platform revenue.
-      if (isFullyPaid) {
-        await commissionService.accrueForInvoice(tx, updated, updated.order.businessDate);
-      }
-
-      return { payment, invoice: updated };
-    });
+      throw error;
+    }
   },
 
   /**
    * Returns money. The original payment is left exactly as it was; this is a
-   * separate, compensating record.
+   * separate, compensating record. Idempotent on idempotencyKey - a retried
+   * request (a slow response the cashier assumes failed, a double tap on
+   * "Issue refund") replays the original refund instead of giving the money
+   * back twice.
    */
   async issueRefund(
     restaurantId: number,
@@ -376,15 +472,77 @@ export const billingService = {
       reasonNote?: string;
       restockedInventory?: boolean;
       issuedBy?: number;
+      idempotencyKey?: string;
     },
   ) {
+    try {
+      return await this.issueRefundAttempt(restaurantId, invoiceId, input);
+    } catch (error) {
+      // Two requests with the same key arrived close enough together that
+      // both passed the in-transaction check below before either committed.
+      // The unique index on (invoiceId, idempotencyKey) is what actually
+      // stopped the double refund; this just gives the loser the same result
+      // the winner got, instead of a raw conflict.
+      if (
+        input.idempotencyKey &&
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        const existingRefund = await prisma.refund.findFirst({
+          where: { invoiceId, idempotencyKey: input.idempotencyKey },
+        });
+
+        if (existingRefund) {
+          const currentInvoice = await prisma.invoice.findUniqueOrThrow({
+            where: { id: invoiceId },
+            include: invoiceInclude,
+          });
+          return { refund: existingRefund, invoice: currentInvoice };
+        }
+      }
+
+      throw error;
+    }
+  },
+
+  async issueRefundAttempt(
+    restaurantId: number,
+    invoiceId: number,
+    input: {
+      amount: number | Prisma.Decimal;
+      reasonCode: string;
+      reasonNote?: string;
+      restockedInventory?: boolean;
+      issuedBy?: number;
+      idempotencyKey?: string;
+    },
+  ) {
+    // commissionService's run-locking below (SELECT ... FOR UPDATE, and a
+    // second lookup when the original run has already closed) can outrun
+    // Prisma's 5-second default interactive-transaction timeout - the same
+    // reason payOrder further down carries this same override.
     return prisma.$transaction(async (tx) => {
       const invoice = await tx.invoice.findFirst({
         where: { id: invoiceId, restaurantId },
+        include: { refunds: true },
       });
 
       if (!invoice) {
         throw HttpError.notFound('That invoice does not exist.');
+      }
+
+      if (input.idempotencyKey) {
+        const existingRefund = invoice.refunds.find(
+          (refund) => refund.idempotencyKey === input.idempotencyKey,
+        );
+
+        if (existingRefund) {
+          const currentInvoice = await tx.invoice.findUniqueOrThrow({
+            where: { id: invoice.id },
+            include: invoiceInclude,
+          });
+          return { refund: existingRefund, invoice: currentInvoice };
+        }
       }
 
       const amount = money.round(money.from(input.amount));
@@ -412,6 +570,7 @@ export const billingService = {
           reasonNote: input.reasonNote?.slice(0, 255) ?? null,
           restockedInventory: input.restockedInventory ?? false,
           issuedBy: input.issuedBy ?? null,
+          idempotencyKey: input.idempotencyKey ?? null,
         },
       });
 
@@ -431,7 +590,7 @@ export const billingService = {
       await commissionService.reverseForRefund(tx, updated, amount);
 
       return { refund, invoice: updated };
-    });
+    }, { timeout: 15_000 });
   },
 
   /** Voids a bill. The row stays; only its status changes. */

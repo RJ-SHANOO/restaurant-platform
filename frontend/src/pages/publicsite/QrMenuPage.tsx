@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Check, Minus, Plus, QrCode, ShoppingBag } from 'lucide-react';
@@ -79,10 +79,15 @@ export default function QrMenuPage() {
 
   const itemCount = Object.values(quantities).reduce((total, quantity) => total + quantity, 0);
 
+  // One key per order attempt: a retry (a shaky connection, a double tap)
+  // must replay under the same key, not a fresh one that would let the
+  // guest's table end up with the same order twice.
+  const idempotencyKeyRef = useRef(crypto.randomUUID());
+
   const placeOrder = useMutation({
     mutationFn: () =>
       apiPost<{ orderNumber: string }>(endpoints.publicSite.placeOrder(qrToken), {
-        idempotencyKey: crypto.randomUUID(),
+        idempotencyKey: idempotencyKeyRef.current,
         items: Object.entries(quantities)
           .filter(([, quantity]) => quantity > 0)
           .map(([productId, quantity]) => ({ productId: Number(productId), quantity })),
@@ -90,6 +95,7 @@ export default function QrMenuPage() {
     onSuccess: (result) => {
       setPlacedOrderNumber(result.orderNumber);
       setQuantities({});
+      idempotencyKeyRef.current = crypto.randomUUID();
     },
     onError: (error) =>
       toast.error(error instanceof ApiError ? error.message : 'Could not send that order.'),
