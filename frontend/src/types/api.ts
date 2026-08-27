@@ -399,7 +399,7 @@ export interface InvoiceRefund {
 export interface Invoice {
   id: number;
   invoiceNumber: string;
-  status: 'issued' | 'paid' | 'void';
+  status: 'issued' | 'paid' | 'partially_refunded' | 'refunded' | 'void';
   order: { id: number; orderNumber: string; orderType: string } | null;
   totals: {
     subtotal: number;

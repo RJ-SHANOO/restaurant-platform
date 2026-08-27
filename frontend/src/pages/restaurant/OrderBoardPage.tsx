@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Banknote, Printer, Receipt as ReceiptIcon } from 'lucide-react';
+import { Ban, Banknote, Printer, Receipt as ReceiptIcon, Undo2, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import clsx from 'clsx';
 import { apiGet, apiPost, ApiError } from '@/api/client';
@@ -31,6 +31,11 @@ export default function OrderBoardPage() {
   const [filter, setFilter] = useState<OrderStatus | 'all'>('all');
   const [billingOrder, setBillingOrder] = useState<Order | null>(null);
   const [receiptOrder, setReceiptOrder] = useState<Order | null>(null);
+  const [refundOrder, setRefundOrder] = useState<Order | null>(null);
+  const [transitionTarget, setTransitionTarget] = useState<{
+    order: Order;
+    status: 'cancelled' | 'voided';
+  } | null>(null);
   const queryClient = useQueryClient();
 
   const { data: orders, isLoading } = useQuery({
@@ -55,13 +60,30 @@ export default function OrderBoardPage() {
     },
   });
 
+  // One key per order, held until that order settles - a retry (a double tap,
+  // a slow response) replays under the same key instead of minting a new one
+  // that would defeat the server's replay guard and risk a second charge.
+  const payOrderKeys = useRef(new Map<number, string>());
+
+  function keyForOrderPayment(orderId: number): string {
+    let key = payOrderKeys.current.get(orderId);
+    if (!key) {
+      key = crypto.randomUUID();
+      payOrderKeys.current.set(orderId, key);
+    }
+    return key;
+  }
+
   // One tap, full amount, cash by default - the fast lane next to the
   // itemised Bill modal for a counter that mostly takes cash.
   const payOrder = useMutation({
     mutationFn: (orderId: number) =>
-      apiPost<Invoice>(endpoints.billing.pay(orderId), { idempotencyKey: crypto.randomUUID() }),
-    onSuccess: (invoice) => {
+      apiPost<Invoice>(endpoints.billing.pay(orderId), {
+        idempotencyKey: keyForOrderPayment(orderId),
+      }),
+    onSuccess: (invoice, orderId) => {
       toast.success(`Bill ${invoice.invoiceNumber} settled in full.`);
+      payOrderKeys.current.delete(orderId);
       queryClient.invalidateQueries({ queryKey: ['orders'] });
     },
     onError: (error) => {
@@ -170,21 +192,58 @@ export default function OrderBoardPage() {
                       </Button>
                     )}
 
-                  {order.allowedNextStatuses.length > 0 && (
-                    <Button
-                      size="sm"
-                      variant={order.status === 'pending' ? 'primary' : 'secondary'}
-                      isLoading={transition.isPending && transition.variables?.orderId === order.id}
-                      onClick={() =>
-                        transition.mutate({
-                          orderId: order.id,
-                          status: order.allowedNextStatuses[0],
-                        })
-                      }
-                    >
-                      {humanise(order.allowedNextStatuses[0])}
+                  {can('billing.refund') && order.paymentStatus !== 'unpaid' && (
+                    <Button size="sm" variant="ghost" onClick={() => setRefundOrder(order)}>
+                      <Undo2 className="h-3.5 w-3.5" /> Refund
                     </Button>
                   )}
+
+                  {order.allowedNextStatuses.map((status) => {
+                    // Cancelling and voiding are separately gated and always
+                    // need a reason, so they open a prompt rather than firing
+                    // straight away like the forward move does.
+                    if (status === 'cancelled') {
+                      return can('orders.cancel') ? (
+                        <Button
+                          key={status}
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setTransitionTarget({ order, status })}
+                        >
+                          <XCircle className="h-3.5 w-3.5" /> Cancel
+                        </Button>
+                      ) : null;
+                    }
+
+                    if (status === 'voided') {
+                      return can('orders.void') ? (
+                        <Button
+                          key={status}
+                          size="sm"
+                          variant="danger"
+                          onClick={() => setTransitionTarget({ order, status })}
+                        >
+                          <Ban className="h-3.5 w-3.5" /> Void
+                        </Button>
+                      ) : null;
+                    }
+
+                    return can('orders.updateStatus') ? (
+                      <Button
+                        key={status}
+                        size="sm"
+                        variant={order.status === 'pending' ? 'primary' : 'secondary'}
+                        isLoading={
+                          transition.isPending &&
+                          transition.variables?.orderId === order.id &&
+                          transition.variables?.status === status
+                        }
+                        onClick={() => transition.mutate({ orderId: order.id, status })}
+                      >
+                        {humanise(status)}
+                      </Button>
+                    ) : null;
+                  })}
                 </div>
               </div>
             </article>
@@ -205,6 +264,18 @@ export default function OrderBoardPage() {
       />
 
       <ReceiptModal order={receiptOrder} onClose={() => setReceiptOrder(null)} />
+
+      <RefundModal
+        order={refundOrder}
+        onClose={() => setRefundOrder(null)}
+        onRefunded={() => queryClient.invalidateQueries({ queryKey: ['orders'] })}
+      />
+
+      <TransitionReasonModal
+        target={transitionTarget}
+        onClose={() => setTransitionTarget(null)}
+        onDone={() => queryClient.invalidateQueries({ queryKey: ['orders'] })}
+      />
     </div>
   );
 }
@@ -229,6 +300,11 @@ function BillModal({
   const [amount, setAmount] = useState('');
   const [tenderedAmount, setTenderedAmount] = useState('');
   const [reference, setReference] = useState('');
+
+  // One key per tender: a split bill is several distinct payments and each
+  // needs its own key, but a retry of the *same* tender (double tap, a slow
+  // response) must replay under the same key rather than risk a second charge.
+  const idempotencyKeyRef = useRef(crypto.randomUUID());
 
   const { data: invoice, isLoading } = useQuery({
     queryKey: ['invoice', order?.id],
@@ -263,8 +339,13 @@ function BillModal({
         amount: Number(amount),
         tenderedAmount: tenderedAmount ? Number(tenderedAmount) : undefined,
         reference: reference.trim() || undefined,
+        idempotencyKey: idempotencyKeyRef.current,
       }),
     onSuccess: (updated) => {
+      // This tender is captured. The next one (another split, or a retry the
+      // cashier means as a genuinely new attempt) gets a key of its own.
+      idempotencyKeyRef.current = crypto.randomUUID();
+
       if (updated.status === 'paid') {
         toast.success(`Bill ${updated.invoiceNumber} settled in full.`);
         onSettled();
@@ -284,6 +365,7 @@ function BillModal({
     setAmount('');
     setTenderedAmount('');
     setReference('');
+    idempotencyKeyRef.current = crypto.randomUUID();
     onClose();
   }
 
@@ -523,6 +605,262 @@ function ReceiptModal({ order, onClose }: { order: Order | null; onClose: () => 
           </div>
         </div>
       )}
+    </Modal>
+  );
+}
+
+const REFUND_REASONS: Array<{ value: string; label: string }> = [
+  { value: 'customer_complaint', label: 'Customer complaint' },
+  { value: 'wrong_order', label: 'Wrong order' },
+  { value: 'quality_issue', label: 'Quality issue' },
+  { value: 'overcharge', label: 'Overcharge' },
+  { value: 'duplicate_payment', label: 'Duplicate payment' },
+  { value: 'other', label: 'Other' },
+];
+
+/**
+ * Returning money against a bill. The original payment is left exactly as it
+ * was - this writes a separate, compensating Refund row. Opening the modal
+ * re-issues the invoice the same way the Bill modal does (a no-op if one
+ * already exists), so the refundable balance is always read from the bill
+ * itself, not from whatever this screen happened to have cached.
+ */
+function RefundModal({
+  order,
+  onClose,
+  onRefunded,
+}: {
+  order: Order | null;
+  onClose: () => void;
+  onRefunded: () => void;
+}) {
+  const [amount, setAmount] = useState('');
+  const [reasonCode, setReasonCode] = useState(REFUND_REASONS[0].value);
+  const [reasonNote, setReasonNote] = useState('');
+  const [restockedInventory, setRestockedInventory] = useState(false);
+  const queryClient = useQueryClient();
+
+  // One key per refund attempt: a retry (a slow response, a double tap on
+  // "Issue refund") must replay under the same key, not a fresh one that
+  // would let the same money go back twice.
+  const idempotencyKeyRef = useRef(crypto.randomUUID());
+
+  const { data: invoice, isLoading } = useQuery({
+    queryKey: ['invoice', order?.id],
+    queryFn: () => apiPost<Invoice>(endpoints.billing.issueInvoice(order!.id)),
+    enabled: Boolean(order),
+  });
+
+  const refundable = invoice ? invoice.totals.paidAmount - invoice.totals.refundedAmount : 0;
+
+  // Default the amount to the full refundable balance each time it changes
+  // (a fresh invoice, or after an earlier partial refund).
+  useEffect(() => {
+    if (invoice) setAmount(Math.max(refundable, 0).toFixed(2));
+  }, [invoice?.totals.paidAmount, invoice?.totals.refundedAmount]);
+
+  const issueRefund = useMutation({
+    mutationFn: () =>
+      apiPost<Invoice>(endpoints.billing.refund(invoice!.id), {
+        amount: Number(amount),
+        reasonCode,
+        reasonNote: reasonNote.trim() || undefined,
+        restockedInventory,
+        idempotencyKey: idempotencyKeyRef.current,
+      }),
+    onSuccess: (updated) => {
+      toast.success(`Refund recorded on ${updated.invoiceNumber}.`);
+      // This refund is issued. The next one (another partial, or a retry the
+      // manager means as a genuinely new attempt) gets a key of its own.
+      idempotencyKeyRef.current = crypto.randomUUID();
+      // The Bill modal reads the same ['invoice', orderId] cache entry - keep
+      // it current so reopening either modal shows this refund, not the
+      // balance from before it.
+      queryClient.setQueryData(['invoice', order?.id], updated);
+      onRefunded();
+      handleClose();
+    },
+    onError: (error) => toast.error(error instanceof ApiError ? error.message : 'Could not issue that refund.'),
+  });
+
+  function handleClose() {
+    setAmount('');
+    setReasonCode(REFUND_REASONS[0].value);
+    setReasonNote('');
+    setRestockedInventory(false);
+    idempotencyKeyRef.current = crypto.randomUUID();
+    onClose();
+  }
+
+  return (
+    <Modal
+      open={Boolean(order)}
+      onClose={handleClose}
+      title={order ? `Refund · ${order.orderNumber}` : 'Refund'}
+      description={invoice ? `Invoice ${invoice.invoiceNumber}` : undefined}
+      footer={
+        invoice &&
+        refundable > 0 && (
+          <Button
+            variant="danger"
+            isLoading={issueRefund.isPending}
+            disabled={!amount || Number(amount) <= 0 || Number(amount) > refundable}
+            onClick={() => issueRefund.mutate()}
+          >
+            Issue refund
+          </Button>
+        )
+      }
+    >
+      {isLoading || !invoice ? (
+        <p className="py-6 text-center text-sm text-ink-faint">Loading the bill…</p>
+      ) : refundable <= 0 ? (
+        <p className="py-6 text-center text-sm text-ink-soft">
+          Nothing left to refund on this bill.
+        </p>
+      ) : (
+        <div className="space-y-4">
+          <div className="space-y-1.5 rounded-control bg-raised p-3.5 text-sm">
+            <div className="flex justify-between text-ink-soft">
+              <span>Paid</span>
+              <span className="numeric">{formatMoney(invoice.totals.paidAmount)}</span>
+            </div>
+            <div className="flex justify-between text-ink-soft">
+              <span>Already refunded</span>
+              <span className="numeric">{formatMoney(invoice.totals.refundedAmount)}</span>
+            </div>
+            <div className="flex justify-between border-t border-line pt-1.5 font-semibold text-ember">
+              <span>Refundable</span>
+              <span className="numeric">{formatMoney(refundable)}</span>
+            </div>
+          </div>
+
+          <TextField
+            label="Refund amount"
+            type="number"
+            min="0"
+            max={refundable}
+            step="0.01"
+            value={amount}
+            onChange={(event) => setAmount(event.target.value)}
+          />
+
+          <div>
+            <label className="field-label">Reason</label>
+            <select
+              className="field"
+              value={reasonCode}
+              onChange={(event) => setReasonCode(event.target.value)}
+            >
+              {REFUND_REASONS.map((reason) => (
+                <option key={reason.value} value={reason.value}>
+                  {reason.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <TextField
+            label="Note (optional)"
+            value={reasonNote}
+            onChange={(event) => setReasonNote(event.target.value)}
+          />
+
+          <label className="flex items-center gap-2 text-sm text-ink-soft">
+            <input
+              type="checkbox"
+              checked={restockedInventory}
+              onChange={(event) => setRestockedInventory(event.target.checked)}
+            />
+            Ingredients were put back in stock
+          </label>
+
+          {invoice.refunds.length > 0 && (
+            <div className="space-y-1.5 border-t border-line pt-3">
+              <p className="eyebrow">Refunds so far</p>
+              {invoice.refunds.map((refund) => (
+                <div key={refund.id} className="flex justify-between text-xs text-ink-soft">
+                  <span>
+                    {REFUND_REASONS.find((reason) => reason.value === refund.reasonCode)?.label ??
+                      refund.reasonCode}
+                  </span>
+                  <span className="numeric">{formatMoney(refund.amount)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+/**
+ * The reason prompt behind Cancel and Void. Both need one server-side - this
+ * is what stops the request before it is sent rather than letting the API
+ * reject it and leaving the cashier to guess why.
+ */
+function TransitionReasonModal({
+  target,
+  onClose,
+  onDone,
+}: {
+  target: { order: Order; status: 'cancelled' | 'voided' } | null;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [reason, setReason] = useState('');
+
+  const transition = useMutation({
+    mutationFn: () =>
+      apiPost(endpoints.orders.transition(target!.order.id), {
+        status: target!.status,
+        reason: reason.trim(),
+      }),
+    onSuccess: () => {
+      toast.success(target!.status === 'voided' ? 'Order voided.' : 'Order cancelled.');
+      onDone();
+      handleClose();
+    },
+    onError: (error) => toast.error(error instanceof ApiError ? error.message : 'Could not update that order.'),
+  });
+
+  function handleClose() {
+    setReason('');
+    onClose();
+  }
+
+  const isVoid = target?.status === 'voided';
+
+  return (
+    <Modal
+      open={Boolean(target)}
+      onClose={handleClose}
+      title={target ? `${isVoid ? 'Void' : 'Cancel'} · ${target.order.orderNumber}` : ''}
+      footer={
+        <Button
+          variant="danger"
+          isLoading={transition.isPending}
+          disabled={!reason.trim()}
+          onClick={() => transition.mutate()}
+        >
+          {isVoid ? 'Void order' : 'Cancel order'}
+        </Button>
+      }
+    >
+      <div className="space-y-3">
+        <p className="text-sm text-ink-soft">
+          {isVoid
+            ? 'Voiding reverses an order after it has already gone through. This cannot be undone.'
+            : 'Cancelling stops this order before it is billed.'}
+        </p>
+        <TextField
+          label="Reason"
+          value={reason}
+          onChange={(event) => setReason(event.target.value)}
+          placeholder={isVoid ? 'Why is this being voided?' : 'Why is this being cancelled?'}
+        />
+      </div>
     </Modal>
   );
 }
