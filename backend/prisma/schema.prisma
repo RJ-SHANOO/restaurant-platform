@@ -139,6 +139,11 @@ model Branch {
   taxPercentage           Decimal @default(0) @map("tax_percentage") @db.Decimal(5, 2)
   serviceChargePercentage Decimal @default(0) @map("service_charge_percentage") @db.Decimal(5, 2)
 
+  // How long the kitchen typically takes on this branch. Used only to give a
+  // QR customer a rough countdown after their order is confirmed - not a
+  // promise, just an estimate the restaurant can tune.
+  estimatedPrepMinutes Int @default(20) @map("estimated_prep_minutes")
+
   acceptsQrOrders Boolean @default(true) @map("accepts_qr_orders")
   acceptsDelivery Boolean @default(false) @map("accepts_delivery")
   acceptsTakeaway Boolean @default(true) @map("accepts_takeaway")
@@ -587,13 +592,24 @@ model Order {
   customerNote String? @map("customer_note") @db.VarChar(500)
   cancelReason String? @map("cancel_reason") @db.VarChar(255)
 
+  // What a QR customer said they intend to pay with, captured at order time
+  // so the bill the waiter brings can already show it pre-selected. It is a
+  // stated intent, not a charge - the actual Payment row is still created
+  // separately when money is taken, and can use a different method.
+  preferredPaymentMethodId Int? @map("preferred_payment_method_id")
+
+  // Set once the order is confirmed: confirmedAt + the branch's
+  // estimatedPrepMinutes. Lets a QR customer poll "how much longer" without
+  // the kitchen doing anything different.
+  estimatedReadyAt DateTime? @map("estimated_ready_at")
+
   // Receipt snapshots, frozen at creation like everything else below - a table
   // renamed or a shift-change after the fact must never change what a reprint
   // shows. tokenNumber is the short per-branch, per-day counter called out at
   // pickup; tableNumber is the dining table's label copied in, not joined.
-  tokenNumber     Int?    @map("token_number")
-  tableNumber     String? @map("table_number") @db.VarChar(40)
-  orderTakerName  String? @map("order_taker_name") @db.VarChar(150)
+  tokenNumber    Int?    @map("token_number")
+  tableNumber    String? @map("table_number") @db.VarChar(40)
+  orderTakerName String? @map("order_taker_name") @db.VarChar(150)
 
   // Frozen snapshots. A later menu price change never rewrites an order that
   // has already been placed.
@@ -624,10 +640,11 @@ model Order {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  restaurant  Restaurant   @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
-  branch      Branch       @relation(fields: [branchId], references: [id], onDelete: Restrict)
-  diningTable DiningTable? @relation(fields: [diningTableId], references: [id], onDelete: SetNull)
-  customer    Customer?    @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  restaurant             Restaurant     @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  branch                 Branch         @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  diningTable            DiningTable?   @relation(fields: [diningTableId], references: [id], onDelete: SetNull)
+  customer               Customer?      @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  preferredPaymentMethod PaymentMethod? @relation(fields: [preferredPaymentMethodId], references: [id], onDelete: SetNull)
 
   items          OrderItem[]
   statusHistory  OrderStatusHistory[]
@@ -970,8 +987,9 @@ model PaymentMethod {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
-  payments   Payment[]
+  restaurant        Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  payments          Payment[]
+  preferredByOrders Order[]
 
   @@unique([restaurantId, code])
   @@map("payment_methods")

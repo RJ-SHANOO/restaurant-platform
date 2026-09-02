@@ -18,6 +18,7 @@ const createOrderSchema = z.object({
   customerNote: z.string().max(500).optional(),
   idempotencyKey: z.string().max(64).optional(),
   orderTakerName: z.string().max(150).optional(),
+  preferredPaymentMethodId: z.number().int().positive().optional(),
   items: z
     .array(
       z.object({
@@ -213,6 +214,7 @@ export function serialiseOrder(order: Record<string, any>) {
     invoice: order.invoice
       ? { ...order.invoice, grandTotal: Number(order.invoice.grandTotal) }
       : null,
+    preferredPaymentMethod: order.preferredPaymentMethod ?? null,
     statusHistory: order.statusHistory,
     // Telling the client which moves are legal keeps the button labels correct
     // without the frontend having to reimplement the state machine.
@@ -223,6 +225,7 @@ export function serialiseOrder(order: Record<string, any>) {
       readyAt: order.readyAt,
       completedAt: order.completedAt,
       createdAt: order.createdAt,
+      estimatedReadyAt: order.estimatedReadyAt,
     },
   };
 }

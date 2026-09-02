@@ -17,6 +17,7 @@ const qrOrderSchema = z.object({
   idempotencyKey: z.string().max(64).optional(),
   customerNote: z.string().max(500).optional(),
   guestCount: z.number().int().positive().max(50).optional(),
+  preferredPaymentMethodId: z.number().int().positive().optional(),
   items: z
     .array(
       z.object({
@@ -89,6 +90,12 @@ export const qrController = {
 
       const site = table.restaurant.website;
 
+      const paymentMethods = await prisma.paymentMethod.findMany({
+        where: { restaurantId: table.restaurant.id, isActive: true },
+        orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+        select: { id: true, name: true, kind: true },
+      });
+
       return apiResponse.success(res, {
         restaurant: {
           name: table.restaurant.name,
@@ -107,6 +114,7 @@ export const qrController = {
         },
         branch: { id: table.branch.id, name: table.branch.name },
         table: { label: table.label, capacity: table.capacity },
+        paymentMethods,
         menu: categories
           .filter((category) => category.products.length > 0)
           .map((category) => ({
@@ -152,6 +160,7 @@ export const qrController = {
         guestCount: input.guestCount,
         customerNote: input.customerNote,
         idempotencyKey: input.idempotencyKey,
+        preferredPaymentMethodId: input.preferredPaymentMethodId,
         items: input.items,
       });
 
@@ -165,6 +174,62 @@ export const qrController = {
         },
         'Order sent. The counter is confirming it now.',
       );
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  /**
+   * What the QR customer polls after placing an order: status, a rough ETA,
+   * and - once the bill exists - what to pay and with which method. Scoped
+   * to the same table the qrToken resolves to, not just the same restaurant,
+   * so one guest's QR code cannot be used to browse another table's orders.
+   */
+  async status(req: Request, res: Response, next: NextFunction) {
+    try {
+      const table = await resolveTable(req.params.qrToken);
+
+      const order = await prisma.order.findFirst({
+        where: {
+          orderNumber: req.params.orderNumber,
+          restaurantId: table.restaurant.id,
+          diningTableId: table.id,
+        },
+        include: {
+          preferredPaymentMethod: { select: { id: true, name: true, kind: true } },
+          invoice: {
+            select: {
+              invoiceNumber: true,
+              status: true,
+              grandTotal: true,
+              paidAmount: true,
+              payments: { select: { method: { select: { name: true } } } },
+            },
+          },
+        },
+      });
+
+      if (!order) {
+        throw HttpError.notFound('That order does not exist.');
+      }
+
+      return apiResponse.success(res, {
+        orderNumber: order.orderNumber,
+        status: order.status,
+        placedAt: order.placedAt,
+        estimatedReadyAt: order.estimatedReadyAt,
+        preferredPaymentMethod: order.preferredPaymentMethod,
+        grandTotal: Number(order.grandTotal),
+        invoice: order.invoice
+          ? {
+              invoiceNumber: order.invoice.invoiceNumber,
+              status: order.invoice.status,
+              grandTotal: Number(order.invoice.grandTotal),
+              paidAmount: Number(order.invoice.paidAmount),
+              paidVia: order.invoice.payments[0]?.method.name ?? null,
+            }
+          : null,
+      });
     } catch (error) {
       next(error);
     }

@@ -30,6 +30,7 @@ export type UserRole =
   | 'restaurant_owner'
   | 'branch_manager'
   | 'cashier'
+  | 'waiter'
   | 'kitchen_staff';
 
 export interface AuthenticatedUser {
@@ -82,6 +83,7 @@ export interface Branch {
   phone: string | null;
   status: 'active' | 'inactive';
   charges: { taxPercentage: number; serviceChargePercentage: number };
+  estimatedPrepMinutes: number;
   hours: { opensAt: string; closesAt: string };
   capabilities: { acceptsQrOrders: boolean; acceptsDelivery: boolean };
   counts?: { diningTables?: number; users?: number };
@@ -338,12 +340,14 @@ export interface Order {
   tableNumber: string | null;
   orderTakerName: string | null;
   items?: OrderItem[];
+  preferredPaymentMethod: { id: number; name: string; kind: PaymentMethodKind } | null;
   allowedNextStatuses: OrderStatus[];
   timestamps: {
     createdAt: string;
     confirmedAt: string | null;
     readyAt: string | null;
     completedAt: string | null;
+    estimatedReadyAt: string | null;
   };
 }
 
@@ -363,6 +367,7 @@ export interface Receipt {
   orderId: number;
   date: string;
   invoiceNumber: string | null;
+  requestedPaymentMethod: string | null;
   orderType: 'dine_in' | 'takeaway' | 'delivery';
   branchName: string;
   items: ReceiptItem[];

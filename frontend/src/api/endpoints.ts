@@ -145,5 +145,7 @@ export const endpoints = {
     bySlug: (slug: string) => `/public/sites/${slug}`,
     resolveTable: (qrToken: string) => `/public/qr/${qrToken}`,
     placeOrder: (qrToken: string) => `/public/qr/${qrToken}/orders`,
+    orderStatus: (qrToken: string, orderNumber: string) =>
+      `/public/qr/${qrToken}/orders/${orderNumber}`,
   },
 } as const;

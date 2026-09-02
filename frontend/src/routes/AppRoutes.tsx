@@ -1,5 +1,6 @@
 import { lazy, Suspense } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
+import { UtensilsCrossed } from 'lucide-react';
 import { DashboardLayout } from '@/layouts/DashboardLayout';
 import { PosLayout } from '@/layouts/PosLayout';
 import { ProtectedRoute } from '@/routes/ProtectedRoute';
@@ -32,6 +33,7 @@ const ReportsPage = lazy(() => import('@/pages/restaurant/ReportsPage'));
 const OrderBoardPage = lazy(() => import('@/pages/restaurant/OrderBoardPage'));
 const WebsiteEditorPage = lazy(() => import('@/pages/restaurant/WebsiteEditorPage'));
 const PosTerminalPage = lazy(() => import('@/pages/pos/PosTerminalPage'));
+const WaiterPage = lazy(() => import('@/pages/waiter/WaiterPage'));
 const KitchenDisplayPage = lazy(() => import('@/pages/kitchen/KitchenDisplayPage'));
 const QrMenuPage = lazy(() => import('@/pages/publicsite/QrMenuPage'));
 const PublicSitePage = lazy(() => import('@/pages/publicsite/PublicSitePage'));
@@ -120,6 +122,18 @@ export function AppRoutes() {
           }
         >
           <Route index element={<PosTerminalPage />} />
+        </Route>
+
+        {/* ------------------------------------------------------- waiter */}
+        <Route
+          path="/waiter"
+          element={
+            <ProtectedRoute requiredPermission="tables.view">
+              <PosLayout title="Waiter" icon={<UtensilsCrossed className="h-5 w-5 text-ember" />} />
+            </ProtectedRoute>
+          }
+        >
+          <Route index element={<WaiterPage />} />
         </Route>
 
         {/* ------------------------------------------------------ kitchen */}

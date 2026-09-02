@@ -28,6 +28,7 @@ const branchSchema = z.object({
   closingTime: z.string().regex(/^\d{2}:\d{2}$/).optional().nullable(),
   taxPercentage: z.number().min(0).max(100).default(0),
   serviceChargePercentage: z.number().min(0).max(100).default(0),
+  estimatedPrepMinutes: z.number().int().min(1).max(180).default(20),
   acceptsQrOrders: z.boolean().default(true),
   acceptsDelivery: z.boolean().default(false),
   acceptsTakeaway: z.boolean().default(true),
@@ -163,6 +164,7 @@ function serialiseBranch(branch: Record<string, unknown>) {
       taxPercentage: Number(branch.taxPercentage),
       serviceChargePercentage: Number(branch.serviceChargePercentage),
     },
+    estimatedPrepMinutes: branch.estimatedPrepMinutes,
     capabilities: {
       acceptsQrOrders: branch.acceptsQrOrders,
       acceptsDelivery: branch.acceptsDelivery,

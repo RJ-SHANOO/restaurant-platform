@@ -47,6 +47,7 @@ export interface CreateOrderInput {
   customerNote?: string;
   idempotencyKey?: string;
   orderTakerName?: string;
+  preferredPaymentMethodId?: number;
   items: OrderItemInput[];
 }
 
@@ -118,6 +119,19 @@ export const orderService = {
 
         if (branch.status !== 'active') {
           throw HttpError.conflict('That branch is not currently open for orders.');
+        }
+
+        const preferredPaymentMethod = input.preferredPaymentMethodId
+          ? await tx.paymentMethod.findFirst({
+              where: { id: input.preferredPaymentMethodId, restaurantId, isActive: true },
+              select: { id: true },
+            })
+          : null;
+
+        if (input.preferredPaymentMethodId && !preferredPaymentMethod) {
+          throw HttpError.validation({
+            preferredPaymentMethodId: ['That payment method is not available.'],
+          });
         }
 
         const productIds = [...new Set(input.items.map((item) => item.productId))];
@@ -236,6 +250,7 @@ export const orderService = {
             guestCount: input.guestCount ?? null,
             customerNote: input.customerNote?.slice(0, 500) ?? null,
             idempotencyKey: input.idempotencyKey ?? null,
+            preferredPaymentMethodId: preferredPaymentMethod?.id ?? null,
             businessDate: businessDateFor(branch.restaurant.timezone),
             tokenNumber: sequence,
             tableNumber: diningTable?.label ?? null,
@@ -322,7 +337,15 @@ export const orderService = {
         const now = new Date();
 
         const timestamps: Partial<Record<string, Date>> = {};
-        if (toStatus === 'confirmed') timestamps.confirmedAt = now;
+        if (toStatus === 'confirmed') {
+          timestamps.confirmedAt = now;
+          // A rough countdown for the QR customer - branch.estimatedPrepMinutes
+          // from the moment the kitchen actually accepted the order, not from
+          // when it was placed and still waiting to be confirmed.
+          timestamps.estimatedReadyAt = new Date(
+            now.getTime() + order.branch.estimatedPrepMinutes * 60_000,
+          );
+        }
         if (toStatus === 'ready') timestamps.readyAt = now;
         if (toStatus === 'completed') timestamps.completedAt = now;
 
@@ -384,4 +407,5 @@ export const orderInclude = {
   diningTable: { select: { id: true, label: true } },
   customer: { select: { id: true, fullName: true, phone: true } },
   invoice: { select: { id: true, invoiceNumber: true, status: true, grandTotal: true } },
+  preferredPaymentMethod: { select: { id: true, name: true, kind: true } },
 } satisfies Prisma.OrderInclude;

@@ -1,7 +1,7 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Check, Minus, Plus, QrCode, ShoppingBag } from 'lucide-react';
+import { Check, Clock, CreditCard, Minus, Plus, QrCode, ShoppingBag } from 'lucide-react';
 import { toast } from 'sonner';
 import { apiGet, apiPost, ApiError } from '@/api/client';
 import { endpoints } from '@/api/endpoints';
@@ -23,12 +23,46 @@ interface QrMenuCategory {
   products: MenuProduct[];
 }
 
+interface QrPaymentMethod {
+  id: number;
+  name: string;
+  kind: string;
+}
+
 interface QrContext {
   restaurant: { name: string; slug: string; currencyCode: string; theme: QrTheme | null };
   branch: { id: number; name: string };
   table: { label: string; capacity: number };
+  paymentMethods: QrPaymentMethod[];
   menu: QrMenuCategory[];
 }
+
+interface QrOrderStatus {
+  orderNumber: string;
+  status: 'pending' | 'confirmed' | 'preparing' | 'ready' | 'served' | 'completed' | 'cancelled' | 'voided';
+  placedAt: string;
+  estimatedReadyAt: string | null;
+  preferredPaymentMethod: QrPaymentMethod | null;
+  grandTotal: number;
+  invoice: {
+    invoiceNumber: string;
+    status: string;
+    grandTotal: number;
+    paidAmount: number;
+    paidVia: string | null;
+  } | null;
+}
+
+const STATUS_COPY: Record<QrOrderStatus['status'], string> = {
+  pending: 'Confirming your order',
+  confirmed: 'The kitchen has your order',
+  preparing: 'Being prepared',
+  ready: 'Ready - on its way to your table',
+  served: 'Served. Enjoy your meal',
+  completed: 'Completed',
+  cancelled: 'This order was cancelled',
+  voided: 'This order was voided',
+};
 
 const DEFAULT_THEME: QrTheme = {
   primaryColor: '#F5A524',
@@ -53,12 +87,19 @@ export default function QrMenuPage() {
   const { qrToken = '' } = useParams();
   const [quantities, setQuantities] = useState<Record<number, number>>({});
   const [placedOrderNumber, setPlacedOrderNumber] = useState<string | null>(null);
+  const [paymentMethodId, setPaymentMethodId] = useState<number | null>(null);
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['qr', qrToken],
     queryFn: () => apiGet<QrContext>(endpoints.publicSite.resolveTable(qrToken)),
     retry: false,
   });
+
+  useEffect(() => {
+    if (!paymentMethodId && data?.paymentMethods.length) {
+      setPaymentMethodId(data.paymentMethods[0].id);
+    }
+  }, [data, paymentMethodId]);
 
   const theme = data?.restaurant.theme ?? DEFAULT_THEME;
   const { background, text, muted, surface, onPrimary } = resolveSiteTheme(theme.backgroundShade);
@@ -88,6 +129,7 @@ export default function QrMenuPage() {
     mutationFn: () =>
       apiPost<{ orderNumber: string }>(endpoints.publicSite.placeOrder(qrToken), {
         idempotencyKey: idempotencyKeyRef.current,
+        preferredPaymentMethodId: paymentMethodId ?? undefined,
         items: Object.entries(quantities)
           .filter(([, quantity]) => quantity > 0)
           .map(([productId, quantity]) => ({ productId: Number(productId), quantity })),
@@ -123,29 +165,15 @@ export default function QrMenuPage() {
 
   if (placedOrderNumber) {
     return (
-      <div
-        className="flex min-h-screen flex-col items-center justify-center px-6 text-center animate-rise-in"
-        style={{ background, color: text, fontFamily: theme.fontFamily }}
-      >
-        <span
-          className="flex h-14 w-14 items-center justify-center rounded-full"
-          style={{ background: `${theme.secondaryColor}22` }}
-        >
-          <Check className="h-7 w-7" style={{ color: theme.secondaryColor }} />
-        </span>
-        <h1 className="mt-5 text-2xl font-semibold">Order sent</h1>
-        <p className="numeric mt-2 text-lg" style={{ color: theme.primaryColor }}>{placedOrderNumber}</p>
-        <p className="mt-3 max-w-xs text-sm" style={{ color: muted }}>
-          The counter is confirming it now. Your food will come to {data.table.label}.
-        </p>
-        <button
-          onClick={() => setPlacedOrderNumber(null)}
-          className="mt-6 rounded-lg px-4 py-2.5 text-sm font-semibold"
-          style={{ background: surface, color: text }}
-        >
-          Order something else
-        </button>
-      </div>
+      <OrderTrackingScreen
+        qrToken={qrToken}
+        orderNumber={placedOrderNumber}
+        tableLabel={data.table.label}
+        currencyCode={data.restaurant.currencyCode}
+        theme={theme}
+        colors={{ background, text, muted, surface }}
+        onReset={() => setPlacedOrderNumber(null)}
+      />
     );
   }
 
@@ -243,6 +271,32 @@ export default function QrMenuPage() {
           className="fixed inset-x-0 bottom-0 p-4 backdrop-blur-lg safe-bottom animate-rise-in"
           style={{ background: `${surface}`, borderTop: `1px solid ${theme.primaryColor}22` }}
         >
+          {data.paymentMethods.length > 0 && (
+            <div className="mb-3">
+              <p className="mb-1.5 text-xs font-medium" style={{ color: muted }}>
+                Pay with, when the bill comes
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {data.paymentMethods.map((method) => {
+                  const selected = paymentMethodId === method.id;
+                  return (
+                    <button
+                      key={method.id}
+                      onClick={() => setPaymentMethodId(method.id)}
+                      className="rounded-lg px-3 py-1.5 text-xs font-medium"
+                      style={
+                        selected
+                          ? { background: theme.primaryColor, color: onPrimary }
+                          : { background: `${theme.primaryColor}15`, color: text }
+                      }
+                    >
+                      {method.name}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           <button
             onClick={() => placeOrder.mutate()}
             disabled={placeOrder.isPending}
@@ -255,6 +309,111 @@ export default function QrMenuPage() {
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * What the guest sees after sending an order: live status, a rough countdown
+ * to when the kitchen expects it ready, and - once the waiter issues the
+ * bill - what to pay and with which method.
+ */
+function OrderTrackingScreen({
+  qrToken,
+  orderNumber,
+  tableLabel,
+  currencyCode,
+  theme,
+  colors,
+  onReset,
+}: {
+  qrToken: string;
+  orderNumber: string;
+  tableLabel: string;
+  currencyCode: string;
+  theme: QrTheme;
+  colors: { background: string; text: string; muted: string; surface: string };
+  onReset: () => void;
+}) {
+  const { background, text, muted, surface } = colors;
+  const [now, setNow] = useState(() => Date.now());
+
+  const { data: order } = useQuery({
+    queryKey: ['qr-order-status', qrToken, orderNumber],
+    queryFn: () => apiGet<QrOrderStatus>(endpoints.publicSite.orderStatus(qrToken, orderNumber)),
+    refetchInterval: 6000,
+  });
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  const remainingSeconds = order?.estimatedReadyAt
+    ? Math.max(0, Math.round((new Date(order.estimatedReadyAt).getTime() - now) / 1000))
+    : null;
+
+  const remainingLabel =
+    remainingSeconds === null
+      ? null
+      : remainingSeconds === 0
+        ? 'Any moment now'
+        : `About ${Math.ceil(remainingSeconds / 60)} min left`;
+
+  const payVia = order?.invoice?.paidVia ?? order?.preferredPaymentMethod?.name ?? null;
+
+  return (
+    <div
+      className="flex min-h-screen flex-col items-center px-6 pb-10 pt-14 text-center animate-rise-in"
+      style={{ background, color: text, fontFamily: theme.fontFamily }}
+    >
+      <span
+        className="flex h-14 w-14 items-center justify-center rounded-full"
+        style={{ background: `${theme.secondaryColor}22` }}
+      >
+        <Check className="h-7 w-7" style={{ color: theme.secondaryColor }} />
+      </span>
+      <h1 className="mt-5 text-2xl font-semibold">Order sent</h1>
+      <p className="numeric mt-2 text-lg" style={{ color: theme.primaryColor }}>{orderNumber}</p>
+      <p className="mt-3 max-w-xs text-sm" style={{ color: muted }}>
+        Coming to {tableLabel}.
+      </p>
+
+      <div className="mt-6 w-full max-w-xs rounded-lg p-4 text-left" style={{ background: surface }}>
+        <p className="text-sm font-semibold">{order ? STATUS_COPY[order.status] : 'Confirming your order'}</p>
+
+        {remainingLabel && !['served', 'completed', 'cancelled', 'voided'].includes(order?.status ?? '') && (
+          <p className="mt-2 flex items-center gap-1.5 text-xs" style={{ color: muted }}>
+            <Clock className="h-3.5 w-3.5" style={{ color: theme.primaryColor }} />
+            {remainingLabel}
+          </p>
+        )}
+
+        {payVia && (
+          <p className="mt-2 flex items-center gap-1.5 text-xs" style={{ color: muted }}>
+            <CreditCard className="h-3.5 w-3.5" style={{ color: theme.primaryColor }} />
+            {order?.invoice ? `Paying via ${payVia}` : `Will pay via ${payVia}`}
+          </p>
+        )}
+
+        {order?.invoice && (
+          <p className="mt-3 border-t pt-3 text-sm" style={{ borderColor: `${theme.primaryColor}22` }}>
+            Bill {order.invoice.invoiceNumber} ·{' '}
+            <span className="numeric font-semibold" style={{ color: theme.primaryColor }}>
+              {formatMoney(order.invoice.grandTotal, currencyCode)}
+            </span>{' '}
+            {order.invoice.status === 'paid' ? '· Paid' : '· Awaiting payment'}
+          </p>
+        )}
+      </div>
+
+      <button
+        onClick={onReset}
+        className="mt-6 rounded-lg px-4 py-2.5 text-sm font-semibold"
+        style={{ background: surface, color: text }}
+      >
+        Order something else
+      </button>
     </div>
   );
 }

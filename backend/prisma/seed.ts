@@ -144,6 +144,22 @@ const ROLE_MATRIX: Record<string, { name: string; description: string; permissio
     ],
   },
 
+  waiter: {
+    name: 'Waiter',
+    description: 'Takes table orders, brings the bill and can collect payment. Cannot void or refund.',
+    permissions: [
+      'menu.view',
+      'tables.view',
+      'orders.view', 'orders.create', 'orders.update', 'orders.updateStatus',
+      // Deliberately no orders.cancel or orders.void: walking back an order is
+      // a manager or cashier call, not a waiter's.
+      'kitchen.view',
+      'billing.view', 'billing.issue', 'billing.collect',
+      // Deliberately no billing.refund: giving money back is a manager's call.
+      'customers.view', 'customers.create',
+    ],
+  },
+
   kitchen_staff: {
     name: 'Kitchen Staff',
     description: 'Sees prep tickets. No prices, no customers, no reports.',

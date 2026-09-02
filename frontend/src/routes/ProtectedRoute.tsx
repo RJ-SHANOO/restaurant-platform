@@ -51,6 +51,8 @@ export function landingPathForRole(role: UserRole | null): string {
       return '/platform';
     case 'cashier':
       return '/pos';
+    case 'waiter':
+      return '/waiter';
     case 'kitchen_staff':
       return '/kitchen';
     default:

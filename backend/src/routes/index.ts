@@ -50,6 +50,7 @@ publicRoutes.get('/sites/:slug', websiteController.publicSite);
 
 publicRoutes.get('/qr/:qrToken', qrController.resolve);
 publicRoutes.post('/qr/:qrToken/orders', qrOrderLimit, qrController.placeOrder);
+publicRoutes.get('/qr/:qrToken/orders/:orderNumber', qrController.status);
 
 router.use('/public', publicRoutes);
 

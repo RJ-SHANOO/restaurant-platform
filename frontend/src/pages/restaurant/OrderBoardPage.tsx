@@ -16,7 +16,7 @@ import { formatDate, formatMoney, formatRelative, formatTime, humanise } from '@
 import type { Invoice, Order, OrderStatus, PaymentMethodConfig, Receipt } from '@/types/api';
 
 // A bill can only be issued once the kitchen has produced the food.
-const BILLABLE_STATUSES: OrderStatus[] = ['ready', 'served', 'completed'];
+export const BILLABLE_STATUSES: OrderStatus[] = ['ready', 'served', 'completed'];
 
 const FILTERS: Array<{ label: string; value: OrderStatus | 'all' }> = [
   { label: 'Live', value: 'all' },
@@ -287,7 +287,7 @@ export default function OrderBoardPage() {
  * backend returns the same invoice on a repeat call), then lets the cashier
  * take one or more payments against it until it is settled in full.
  */
-function BillModal({
+export function BillModal({
   order,
   onClose,
   onSettled,
@@ -328,9 +328,14 @@ function BillModal({
     if (invoice) setAmount(invoice.totals.outstanding.toFixed(2));
   }, [invoice?.totals.outstanding]);
 
+  // Defaults to whatever the customer said they'd pay with when they placed
+  // a QR order; a cashier settling in cash or another method just changes it.
   useEffect(() => {
-    if (activeMethods.length > 0 && !paymentMethodId) setPaymentMethodId(String(activeMethods[0].id));
-  }, [paymentMethods]);
+    if (activeMethods.length === 0 || paymentMethodId) return;
+    const preferred = order?.preferredPaymentMethod?.id;
+    const preferredIsActive = preferred && activeMethods.some((method) => method.id === preferred);
+    setPaymentMethodId(String(preferredIsActive ? preferred : activeMethods[0].id));
+  }, [paymentMethods, order]);
 
   const capturePayment = useMutation({
     mutationFn: () =>
@@ -434,6 +439,11 @@ function BillModal({
                     </option>
                   ))}
                 </select>
+                {order?.preferredPaymentMethod && (
+                  <p className="mt-1 text-xs text-ink-faint">
+                    Customer requested {order.preferredPaymentMethod.name}.
+                  </p>
+                )}
               </div>
 
               <TextField
@@ -597,6 +607,11 @@ function ReceiptModal({ order, onClose }: { order: Order | null; onClose: () => 
               <span>Order taker: {receipt.orderTaker ?? '—'}</span>
               <span>Printed {formatTime(receipt.printedAt)}</span>
             </div>
+            {receipt.requestedPaymentMethod && (
+              <div className="flex justify-between">
+                <span>Pay via: {receipt.requestedPaymentMethod}</span>
+              </div>
+            )}
           </div>
 
           <div className="space-y-0.5 border-t border-dashed border-line pt-2 text-center text-xs text-ink-faint">

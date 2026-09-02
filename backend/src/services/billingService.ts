@@ -175,14 +175,20 @@ export const billingService = {
         throw HttpError.conflict('That invoice has been voided.');
       }
 
+      // Falls back to what the customer said they'd pay with at order time,
+      // then to cash, if the till doesn't say which method was actually used.
       const method = input.paymentMethodId
         ? await tx.paymentMethod.findFirst({
             where: { id: input.paymentMethodId, restaurantId, isActive: true },
           })
-        : await tx.paymentMethod.findFirst({
-            where: { restaurantId, kind: 'cash', isActive: true },
-            orderBy: { sortOrder: 'asc' },
-          });
+        : order.preferredPaymentMethodId
+          ? await tx.paymentMethod.findFirst({
+              where: { id: order.preferredPaymentMethodId, restaurantId, isActive: true },
+            })
+          : await tx.paymentMethod.findFirst({
+              where: { restaurantId, kind: 'cash', isActive: true },
+              orderBy: { sortOrder: 'asc' },
+            });
 
       if (!method) {
         throw HttpError.validation({
@@ -244,6 +250,7 @@ export const billingService = {
         branch: { select: { name: true } },
         diningTable: { select: { label: true } },
         items: true,
+        preferredPaymentMethod: { select: { name: true } },
         invoice: {
           include: { payments: { include: { method: { select: { name: true, kind: true } } } } },
         },
@@ -277,6 +284,7 @@ export const billingService = {
       orderId: order.id,
       date: order.placedAt,
       invoiceNumber: order.invoice?.invoiceNumber ?? null,
+      requestedPaymentMethod: order.preferredPaymentMethod?.name ?? null,
       orderType: order.orderType,
       branchName: order.branch.name,
       items: order.items.map((item) => ({
