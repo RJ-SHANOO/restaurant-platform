@@ -8,6 +8,7 @@ import { endpoints } from '@/api/endpoints';
 import { Button } from '@/components/ui/Button';
 import { TextField } from '@/components/ui/TextField';
 import { Modal } from '@/components/ui/Modal';
+import { ImageUploadField } from '@/components/ui/ImageUploadField';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { useAuth } from '@/context/AuthContext';
@@ -116,6 +117,20 @@ export default function PaymentMethodsPage() {
                   )}
                 </div>
 
+                {(method.accountTitle || method.accountNumber) && (
+                  <p className="mt-2.5 truncate text-xs text-ink-faint">
+                    {[method.accountTitle, method.accountNumber].filter(Boolean).join(' · ')}
+                  </p>
+                )}
+
+                {method.qrImageUrl && (
+                  <img
+                    src={method.qrImageUrl}
+                    alt={`${method.name} QR code`}
+                    className="mt-2.5 h-20 w-20 rounded-control border border-line object-contain"
+                  />
+                )}
+
                 {method.requiresReference && (
                   <p className="mt-2.5 text-xs text-ink-faint">Needs a reference number at time of payment.</p>
                 )}
@@ -166,6 +181,7 @@ function MethodModal({ editing, onClose }: { editing?: PaymentMethodConfig; onCl
   const [requiresReference, setRequiresReference] = useState(editing?.requiresReference ?? false);
   const [accountTitle, setAccountTitle] = useState(editing?.accountTitle ?? '');
   const [accountNumber, setAccountNumber] = useState(editing?.accountNumber ?? '');
+  const [qrImageUrl, setQrImageUrl] = useState(editing?.qrImageUrl ?? '');
   const [instructions, setInstructions] = useState(editing?.instructions ?? '');
 
   const save = useMutation({
@@ -202,6 +218,7 @@ function MethodModal({ editing, onClose }: { editing?: PaymentMethodConfig; onCl
                 requiresReference,
                 accountTitle: accountTitle || null,
                 accountNumber: accountNumber || null,
+                qrImageUrl: qrImageUrl || null,
                 instructions: instructions || null,
               })
             }
@@ -236,6 +253,8 @@ function MethodModal({ editing, onClose }: { editing?: PaymentMethodConfig; onCl
           <TextField label="Account title" value={accountTitle} onChange={(event) => setAccountTitle(event.target.value)} placeholder="Optional" />
           <TextField label="Account number" value={accountNumber} onChange={(event) => setAccountNumber(event.target.value)} placeholder="Optional" />
         </div>
+
+        <ImageUploadField label="QR code" value={qrImageUrl} onChange={setQrImageUrl} />
 
         <div>
           <label className="field-label">Instructions shown at the counter</label>
