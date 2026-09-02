@@ -137,7 +137,10 @@ tenant.patch('/kitchen/tickets/:id/status', requirePermission('kitchen.updateSta
 tenant.get('/kitchen/tickets/:id/print-payload', requirePermission('kitchen.view'), kitchenController.printPayload);
 
 // Payment methods
-tenant.get('/payment-methods', requirePermission('settings.view'), paymentMethodController.index);
+// Read access follows billing.view, not settings.view: anyone who can take a
+// payment needs to see what methods exist to pick one, even if they cannot
+// manage them. Managing them (below) is still settings.update-gated.
+tenant.get('/payment-methods', requirePermission('billing.view'), paymentMethodController.index);
 tenant.post('/payment-methods', requirePermission('settings.update'), paymentMethodController.store);
 tenant.put('/payment-methods/:id', requirePermission('settings.update'), paymentMethodController.update);
 tenant.delete('/payment-methods/:id', requirePermission('settings.update'), paymentMethodController.destroy);

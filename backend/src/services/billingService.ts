@@ -83,7 +83,7 @@ export const billingService = {
       const invoice = await createInvoiceForOrder(tx, restaurantId, order);
 
       return tx.invoice.findUniqueOrThrow({ where: { id: invoice.id }, include: invoiceInclude });
-    });
+    }, { timeout: 15_000 });
   },
 
   /**
