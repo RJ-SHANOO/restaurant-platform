@@ -147,5 +147,7 @@ export const endpoints = {
     placeOrder: (qrToken: string) => `/public/qr/${qrToken}/orders`,
     orderStatus: (qrToken: string, orderNumber: string) =>
       `/public/qr/${qrToken}/orders/${orderNumber}`,
+    addOrderItems: (qrToken: string, orderNumber: string) =>
+      `/public/qr/${qrToken}/orders/${orderNumber}/items`,
   },
 } as const;

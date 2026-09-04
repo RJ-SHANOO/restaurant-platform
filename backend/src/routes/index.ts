@@ -51,6 +51,7 @@ publicRoutes.get('/sites/:slug', websiteController.publicSite);
 publicRoutes.get('/qr/:qrToken', qrController.resolve);
 publicRoutes.post('/qr/:qrToken/orders', qrOrderLimit, qrController.placeOrder);
 publicRoutes.get('/qr/:qrToken/orders/:orderNumber', qrController.status);
+publicRoutes.post('/qr/:qrToken/orders/:orderNumber/items', qrOrderLimit, qrController.addItems);
 
 router.use('/public', publicRoutes);
 

@@ -31,6 +31,20 @@ const qrOrderSchema = z.object({
     .min(1),
 });
 
+const qrAddItemsSchema = z.object({
+  items: z
+    .array(
+      z.object({
+        productId: z.number().int().positive(),
+        productVariantId: z.number().int().positive().optional(),
+        quantity: z.number().int().positive().max(30),
+        modifierIds: z.array(z.number().int().positive()).optional(),
+        kitchenNote: z.string().max(255).optional(),
+      }),
+    )
+    .min(1),
+});
+
 async function resolveTable(qrToken: string) {
   const table = await prisma.diningTable.findUnique({
     where: { qrToken },
@@ -230,6 +244,37 @@ export const qrController = {
             }
           : null,
       });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  /**
+   * Adds items to an order the same guest already placed at this table,
+   * as long as the bill has not been issued yet. Scoped to this qrToken's
+   * table, same as status() - a guest's code can only add to their own
+   * table's order, never one they merely know the number of.
+   */
+  async addItems(req: Request, res: Response, next: NextFunction) {
+    try {
+      const input = qrAddItemsSchema.parse(req.body);
+      const table = await resolveTable(req.params.qrToken);
+
+      const order = await orderService.appendItems(
+        table.restaurant.id,
+        { orderNumber: req.params.orderNumber, diningTableId: table.id },
+        input.items,
+      );
+
+      return apiResponse.success(
+        res,
+        {
+          orderNumber: order.orderNumber,
+          status: order.status,
+          grandTotal: Number(order.grandTotal),
+        },
+        'Added to your order.',
+      );
     } catch (error) {
       next(error);
     }
