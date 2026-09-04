@@ -122,6 +122,14 @@ function ProductList({
                   className="flex items-center gap-4 rounded-lg p-4"
                   style={{ background: surface }}
                 >
+                  {product.imageUrl && (
+                    <img
+                      src={product.imageUrl}
+                      alt=""
+                      className="h-16 w-16 shrink-0 rounded-lg object-cover"
+                    />
+                  )}
+
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-medium" style={{ color: text }}>{product.name}</p>
                     {product.description && (
