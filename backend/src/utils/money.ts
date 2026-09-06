@@ -34,62 +34,6 @@ export const money = {
   },
 };
 
-export interface OrderTotalsInput {
-  subtotal: Money;
-  discountAmount?: Money;
-  serviceChargePercentage: number | Money;
-  taxPercentage: number | Money;
-  deliveryFee?: Money;
-  tipAmount?: Money;
-}
-
-export interface OrderTotals {
-  subtotal: Money;
-  discountAmount: Money;
-  serviceCharge: Money;
-  taxAmount: Money;
-  deliveryFee: Money;
-  tipAmount: Money;
-  grandTotal: Money;
-}
-
-/**
- * The order of operations here is deliberate and is the part worth arguing
- * about:
- *
- *   subtotal - discount            = taxable base
- *   + service charge (% of base)
- *   + tax (% of base + service)
- *   + delivery + tip
- *   = grand total
- *
- * Tax applies to the service charge because that is how it is assessed in
- * Pakistan. Each component is rounded once, as it is computed, so the printed
- * lines always sum to the printed total - a receipt whose parts do not add up
- * to its own total is the fastest way to lose a customer's trust.
- */
-export function calculateOrderTotals(input: OrderTotalsInput): OrderTotals {
-  const subtotal = money.round(input.subtotal);
-  const discountAmount = money.round(input.discountAmount ?? money.zero());
-
-  const taxableBase = subtotal.sub(discountAmount);
-  const serviceCharge = money.percentageOf(taxableBase, input.serviceChargePercentage);
-  const taxAmount = money.percentageOf(taxableBase.add(serviceCharge), input.taxPercentage);
-
-  const deliveryFee = money.round(input.deliveryFee ?? money.zero());
-  const tipAmount = money.round(input.tipAmount ?? money.zero());
-
-  const grandTotal = money.round(
-    taxableBase.add(serviceCharge).add(taxAmount).add(deliveryFee).add(tipAmount),
-  );
-
-  return {
-    subtotal,
-    discountAmount,
-    serviceCharge,
-    taxAmount,
-    deliveryFee,
-    tipAmount,
-    grandTotal,
-  };
-}
+// Order totals (subtotal, service charge, tax, grand total) are computed by
+// settingsService.resolveCharges, not here - a branch's rate now comes from
+// BranchSettings/PaymentMethod, not a flat percentage on Branch itself.

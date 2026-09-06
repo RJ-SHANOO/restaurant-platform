@@ -3,11 +3,12 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Minus, Plus, Search, ShoppingCart, Trash2, UtensilsCrossed } from 'lucide-react';
 import { toast } from 'sonner';
 import clsx from 'clsx';
-import { apiGet, apiPost, ApiError } from '@/api/client';
+import { apiGet, apiPost, ApiError, isConnectivityError } from '@/api/client';
 import { endpoints } from '@/api/endpoints';
 import { Button } from '@/components/ui/Button';
 import { TextField } from '@/components/ui/TextField';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { PendingSyncPill } from '@/components/ui/StatusPill';
 import { formatMoney } from '@/utils/format';
 import { useAuth } from '@/context/AuthContext';
 import type { MenuProduct, Order } from '@/types/api';
@@ -60,6 +61,10 @@ export default function PosTerminalPage() {
   const [search, setSearch] = useState('');
   const [cart, setCart] = useState<CartLine[]>([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
+  // Set when the last send failed to reach the server at all - not a bad
+  // order, just an offline moment. The cart and idempotency key are kept as
+  // they are, so tapping "Send order" again is a safe retry, not a duplicate.
+  const [pendingSync, setPendingSync] = useState(false);
 
   // One key per order attempt, not per request: a retry of the same "Send
   // order" (a slow network, a cashier tapping twice) must replay under the
@@ -125,13 +130,21 @@ export default function PosTerminalPage() {
       toast.success(`Order ${order.orderNumber} sent to the counter queue.`);
       setCart([]);
       setIsCartOpen(false);
+      setPendingSync(false);
       // This key now belongs to the order that was just created. The next
       // "Send order" is a different order and needs a key of its own.
       idempotencyKeyRef.current = crypto.randomUUID();
       queryClient.invalidateQueries({ queryKey: ['orders'] });
     },
-    onError: (error) =>
-      toast.error(error instanceof ApiError ? error.message : 'Could not place that order.'),
+    onError: (error) => {
+      if (isConnectivityError(error)) {
+        setPendingSync(true);
+        toast.error('No connection. The order is kept here - tap Send order again once you are back online.');
+      } else {
+        setPendingSync(false);
+        toast.error(error instanceof ApiError ? error.message : 'Could not place that order.');
+      }
+    },
   });
 
   return (
@@ -188,10 +201,16 @@ export default function PosTerminalPage() {
         )}
       >
         <header className="flex items-center justify-between border-b border-line px-4 py-3.5">
-          <h2 className="font-display text-sm font-semibold text-ink">Current order</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="font-display text-sm font-semibold text-ink">Current order</h2>
+            {pendingSync && <PendingSyncPill />}
+          </div>
           {cart.length > 0 && (
             <button
-              onClick={() => setCart([])}
+              onClick={() => {
+                setCart([]);
+                setPendingSync(false);
+              }}
               className="btn btn-ghost text-xs"
             >
               <Trash2 className="h-3.5 w-3.5" /> Clear
@@ -248,7 +267,9 @@ export default function PosTerminalPage() {
             <span className="numeric">{formatMoney(subtotal)}</span>
           </div>
           <p className="text-xs text-ink-faint">
-            Tax and service charge are applied by the branch when the order is created.
+            {pendingSync
+              ? 'No connection reached the server. Nothing was lost - tap Send order again once you are back online.'
+              : 'Tax and service charge shown here are an estimate. The binding rate is resolved when the bill is issued.'}
           </p>
 
           <Button

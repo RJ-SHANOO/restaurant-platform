@@ -74,6 +74,12 @@ export const endpoints = {
     update: '/settings',
   },
 
+  /** Mezbaan: one branch's own business profile, hours, tax and online ordering. */
+  branchSettings: {
+    show: '/branch-settings',
+    update: '/branch-settings',
+  },
+
   uploads: {
     create: '/uploads',
   },

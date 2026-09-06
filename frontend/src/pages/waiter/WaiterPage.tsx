@@ -12,13 +12,13 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import clsx from 'clsx';
-import { apiGet, apiPost, ApiError } from '@/api/client';
+import { apiGet, apiPost, ApiError, isConnectivityError } from '@/api/client';
 import { endpoints } from '@/api/endpoints';
 import { Button } from '@/components/ui/Button';
 import { TextField } from '@/components/ui/TextField';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Skeleton } from '@/components/ui/Skeleton';
-import { OrderStatusPill } from '@/components/ui/StatusPill';
+import { OrderStatusPill, PendingSyncPill } from '@/components/ui/StatusPill';
 import { useAuth } from '@/context/AuthContext';
 import { formatMoney, humanise } from '@/utils/format';
 import { BillModal, BILLABLE_STATUSES } from '@/pages/restaurant/OrderBoardPage';
@@ -267,6 +267,9 @@ function OrderComposer({
   const [cart, setCart] = useState<CartLine[]>([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [paymentMethodId, setPaymentMethodId] = useState<number | null>(null);
+  // Set when the last send failed to reach the server at all - kept as a
+  // safe-to-retry state, same as the POS terminal's cart.
+  const [pendingSync, setPendingSync] = useState(false);
 
   const idempotencyKeyRef = useRef(crypto.randomUUID());
 
@@ -329,11 +332,19 @@ function OrderComposer({
       }),
     onSuccess: (order) => {
       toast.success(`Order ${order.orderNumber} sent for ${table.label}.`);
+      setPendingSync(false);
       idempotencyKeyRef.current = crypto.randomUUID();
       onPlaced();
     },
-    onError: (error) =>
-      toast.error(error instanceof ApiError ? error.message : 'Could not place that order.'),
+    onError: (error) => {
+      if (isConnectivityError(error)) {
+        setPendingSync(true);
+        toast.error('No connection. The order is kept here - tap Send order again once you are back online.');
+      } else {
+        setPendingSync(false);
+        toast.error(error instanceof ApiError ? error.message : 'Could not place that order.');
+      }
+    },
   });
 
   return (
@@ -397,9 +408,18 @@ function OrderComposer({
         )}
       >
         <header className="flex items-center justify-between border-b border-line px-4 py-3.5">
-          <h2 className="font-display text-sm font-semibold text-ink">{table.label}'s order</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="font-display text-sm font-semibold text-ink">{table.label}'s order</h2>
+            {pendingSync && <PendingSyncPill />}
+          </div>
           {cart.length > 0 && (
-            <button onClick={() => setCart([])} className="btn btn-ghost text-xs">
+            <button
+              onClick={() => {
+                setCart([]);
+                setPendingSync(false);
+              }}
+              className="btn btn-ghost text-xs"
+            >
               <Trash2 className="h-3.5 w-3.5" /> Clear
             </button>
           )}
@@ -471,7 +491,9 @@ function OrderComposer({
             <span className="numeric">{formatMoney(subtotal)}</span>
           </div>
           <p className="text-xs text-ink-faint">
-            Tax and service charge are applied by the branch when the order is created.
+            {pendingSync
+              ? 'No connection reached the server. Nothing was lost - tap Send order again once you are back online.'
+              : 'Tax and service charge shown here are an estimate. The binding rate is resolved when the bill is issued.'}
           </p>
 
           <Button

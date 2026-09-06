@@ -4,6 +4,7 @@ import { HttpError } from '../utils/apiResponse';
 import { money } from '../utils/money';
 import { documentNumber } from '../utils/documentNumber';
 import { commissionService } from './commissionService';
+import { resolveCharges } from './settingsService';
 
 /**
  * Invoices, payments and refunds.
@@ -22,9 +23,8 @@ type OrderForInvoice = {
   status: string;
   subtotal: Prisma.Decimal;
   discountAmount: Prisma.Decimal;
-  serviceCharge: Prisma.Decimal;
-  taxAmount: Prisma.Decimal;
-  grandTotal: Prisma.Decimal;
+  deliveryFee: Prisma.Decimal;
+  tipAmount: Prisma.Decimal;
   branch: { code: string };
 };
 
@@ -32,14 +32,32 @@ type OrderForInvoice = {
  * Creates the invoice row for an order that has none yet. Shared by
  * issueInvoice (an explicit "print the bill" action) and payOrder (a POS
  * one-tap settle that issues the bill implicitly if it hasn't been already) -
- * both must apply the same "food must be ready" gate and totals-copy rule.
+ * both must apply the same "food must be ready" gate.
+ *
+ * This is the actual checkout moment: tax and service charge are resolved
+ * here, from the branch's current Mezbaan settings and whichever payment
+ * method is known right now - not copied from the order's placement-time
+ * estimate, and never taken from anything the client sent.
  */
-async function createInvoiceForOrder(tx: Tx, restaurantId: number, order: OrderForInvoice) {
+async function createInvoiceForOrder(
+  tx: Tx,
+  restaurantId: number,
+  order: OrderForInvoice,
+  paymentMethodId: number | null,
+) {
   if (!['ready', 'served', 'completed'].includes(order.status)) {
     throw HttpError.conflict('A bill can only be issued once the food has been prepared.');
   }
 
   const invoiceNumber = await documentNumber.forInvoice(tx, order.branchId, order.branch.code);
+
+  const charges = await resolveCharges(tx, restaurantId, order.branchId, {
+    subtotal: order.subtotal,
+    discountAmount: order.discountAmount,
+    paymentMethodId,
+  });
+
+  const grandTotal = money.round(charges.total.add(order.deliveryFee).add(order.tipAmount));
 
   return tx.invoice.create({
     data: {
@@ -48,11 +66,16 @@ async function createInvoiceForOrder(tx: Tx, restaurantId: number, order: OrderF
       orderId: order.id,
       invoiceNumber,
       status: 'issued',
-      subtotal: order.subtotal,
-      discountAmount: order.discountAmount,
-      serviceCharge: order.serviceCharge,
-      taxAmount: order.taxAmount,
-      grandTotal: order.grandTotal,
+      subtotal: charges.subtotal,
+      discountAmount: charges.discountAmount,
+      serviceCharge: charges.serviceChargeAmount,
+      taxAmount: charges.taxAmount,
+      grandTotal,
+      taxMode: charges.taxMode,
+      taxRate: charges.taxRate,
+      serviceChargeRate: charges.serviceChargeRate,
+      paymentMethodId: charges.paymentMethodId,
+      paymentMethodName: charges.paymentMethodName,
       // What a bill QR encodes. A customer scans it to see the bill and
       // pay; it carries no account details of its own.
       qrPayload: `invoice:${invoiceNumber}`,
@@ -80,7 +103,16 @@ export const billingService = {
         });
       }
 
-      const invoice = await createInvoiceForOrder(tx, restaurantId, order);
+      // No tender has been chosen yet at this point - issueInvoice just
+      // prints the bill. Fall back to whatever the customer said they'd pay
+      // with; per-method tax without even that falls back to no tax rather
+      // than guessing.
+      const invoice = await createInvoiceForOrder(
+        tx,
+        restaurantId,
+        order,
+        order.preferredPaymentMethodId ?? null,
+      );
 
       return tx.invoice.findUniqueOrThrow({ where: { id: invoice.id }, include: invoiceInclude });
     }, { timeout: 15_000 });
@@ -169,24 +201,20 @@ export const billingService = {
         throw HttpError.conflict('This order is already marked paid.');
       }
 
-      const invoice = order.invoice ?? (await createInvoiceForOrder(tx, restaurantId, order));
-
-      if (invoice.status === 'void') {
-        throw HttpError.conflict('That invoice has been voided.');
-      }
-
-      // Falls back to what the customer said they'd pay with at order time,
-      // then to cash, if the till doesn't say which method was actually used.
+      // Resolved before the invoice is created, not after - a one-tap settle
+      // already knows its tender, and that is what per-method tax must bind
+      // to. Falls back to what the customer said they'd pay with at order
+      // time, then to cash, if the till doesn't say which method was used.
       const method = input.paymentMethodId
         ? await tx.paymentMethod.findFirst({
-            where: { id: input.paymentMethodId, restaurantId, isActive: true },
+            where: { id: input.paymentMethodId, branchId: order.branchId, deletedAt: null, isActive: true },
           })
         : order.preferredPaymentMethodId
           ? await tx.paymentMethod.findFirst({
-              where: { id: order.preferredPaymentMethodId, restaurantId, isActive: true },
+              where: { id: order.preferredPaymentMethodId, branchId: order.branchId, deletedAt: null, isActive: true },
             })
           : await tx.paymentMethod.findFirst({
-              where: { restaurantId, kind: 'cash', isActive: true },
+              where: { branchId: order.branchId, deletedAt: null, kind: 'cash', isActive: true },
               orderBy: { sortOrder: 'asc' },
             });
 
@@ -194,6 +222,12 @@ export const billingService = {
         throw HttpError.validation({
           paymentMethodId: ['Pass a payment method - no active cash method is configured.'],
         });
+      }
+
+      const invoice = order.invoice ?? (await createInvoiceForOrder(tx, restaurantId, order, method.id));
+
+      if (invoice.status === 'void') {
+        throw HttpError.conflict('That invoice has been voided.');
       }
 
       const outstanding = money.round(
@@ -228,6 +262,16 @@ export const billingService = {
         where: { id: order.id },
         data: { paymentStatus: 'paid' },
       });
+
+      // A paid bill frees the table for the next guest immediately - table
+      // occupancy tracks who is sitting there, not whether the order object
+      // has been formally closed out through the kitchen flow.
+      if (order.diningTableId) {
+        await tx.diningTable.updateMany({
+          where: { id: order.diningTableId, restaurantId },
+          data: { status: 'available' },
+        });
+      }
 
       // Commission accrues only on a fully-paid bill, per commissionService's
       // rule - never on an order that is still owed money.
@@ -336,7 +380,7 @@ export const billingService = {
       return await prisma.$transaction(async (tx) => {
         const invoice = await tx.invoice.findFirst({
           where: { id: invoiceId, restaurantId },
-          include: { payments: true },
+          include: { payments: true, order: { select: { diningTableId: true } } },
         });
 
         if (!invoice) {
@@ -362,7 +406,7 @@ export const billingService = {
         }
 
         const method = await tx.paymentMethod.findFirst({
-          where: { id: input.paymentMethodId, restaurantId, isActive: true },
+          where: { id: input.paymentMethodId, branchId: invoice.branchId, deletedAt: null, isActive: true },
         });
 
         if (!method) {
@@ -427,6 +471,15 @@ export const billingService = {
           where: { id: invoice.orderId },
           data: { paymentStatus: isFullyPaid ? 'paid' : 'partial' },
         });
+
+        // Same as payOrderAttempt: a fully-settled bill frees the table right
+        // away, independent of whether the order itself is later marked completed.
+        if (isFullyPaid && invoice.order.diningTableId) {
+          await tx.diningTable.updateMany({
+            where: { id: invoice.order.diningTableId, restaurantId },
+            data: { status: 'available' },
+          });
+        }
 
         // Commission accrues only on a fully-paid bill. An order that is
         // cancelled or never paid must never generate platform revenue.

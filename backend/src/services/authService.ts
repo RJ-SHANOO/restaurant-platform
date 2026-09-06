@@ -262,6 +262,7 @@ async function provisionRestaurant(input: RegisterRestaurantInput, terms: Commer
     await tx.paymentMethod.create({
       data: {
         restaurantId: restaurant.id,
+        branchId: branch.id,
         name: 'Cash',
         code: 'cash',
         kind: 'cash',

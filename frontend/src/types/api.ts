@@ -82,7 +82,6 @@ export interface Branch {
   city: string | null;
   phone: string | null;
   status: 'active' | 'inactive';
-  charges: { taxPercentage: number; serviceChargePercentage: number };
   estimatedPrepMinutes: number;
   hours: { opensAt: string; closesAt: string };
   capabilities: { acceptsQrOrders: boolean; acceptsDelivery: boolean };
@@ -225,10 +224,11 @@ export interface Purchase {
   createdAt: string;
 }
 
-export type PaymentMethodKind = 'cash' | 'card' | 'wallet' | 'bank' | 'online';
+export type PaymentMethodKind = 'cash' | 'card' | 'wallet' | 'bank' | 'online' | 'credit';
 
 export interface PaymentMethodConfig {
   id: number;
+  branchId: number;
   name: string;
   code: string;
   kind: PaymentMethodKind;
@@ -237,9 +237,40 @@ export interface PaymentMethodConfig {
   accountNumber: string | null;
   qrImageUrl: string | null;
   instructions: string | null;
+  /** Only read when the branch's BranchSettings.taxMode is 'per_method'. */
+  taxRate: number;
   isActive: boolean;
   sortOrder: number;
   createdAt: string;
+}
+
+export type BranchDateMode = 'calendar' | 'business';
+export type ReportGrouping = 'day' | 'shift';
+export type TaxMode = 'disabled' | 'uniform' | 'per_method' | 'fixed';
+
+export interface BranchSettings {
+  id: number;
+  branchId: number;
+  businessName: string;
+  phone: string | null;
+  ntn: string | null;
+  address: string | null;
+  currencySymbol: string;
+  dateMode: BranchDateMode;
+  openingTime: string | null;
+  reportGrouping: ReportGrouping;
+  taxMode: TaxMode;
+  uniformRate: number;
+  fixedAmount: number;
+  serviceChargeEnabled: boolean;
+  serviceChargeRate: number;
+  acceptOnlineOrders: boolean;
+  deliveryEnabled: boolean;
+  pickupEnabled: boolean;
+  deliveryFee: number;
+  minimumOrder: number;
+  deliveryRadiusKm: number;
+  updatedAt: string;
 }
 
 export interface Expense {

@@ -28,6 +28,7 @@ const CustomersPage = lazy(() => import('@/pages/restaurant/CustomersPage'));
 const StaffPage = lazy(() => import('@/pages/restaurant/StaffPage'));
 const SettingsPage = lazy(() => import('@/pages/restaurant/SettingsPage'));
 const PaymentMethodsPage = lazy(() => import('@/pages/restaurant/PaymentMethodsPage'));
+const MezbaanSettingsPage = lazy(() => import('@/pages/restaurant/MezbaanSettingsPage'));
 const ExpensesPage = lazy(() => import('@/pages/restaurant/ExpensesPage'));
 const ReportsPage = lazy(() => import('@/pages/restaurant/ReportsPage'));
 const OrderBoardPage = lazy(() => import('@/pages/restaurant/OrderBoardPage'));
@@ -105,6 +106,7 @@ export function AppRoutes() {
           <Route path="customers" element={<CustomersPage />} />
           <Route path="staff" element={<StaffPage />} />
           <Route path="settings" element={<SettingsPage />} />
+          <Route path="mezbaan" element={<MezbaanSettingsPage />} />
           <Route path="payment-methods" element={<PaymentMethodsPage />} />
           <Route path="expenses" element={<ExpensesPage />} />
           <Route path="reports" element={<ReportsPage />} />

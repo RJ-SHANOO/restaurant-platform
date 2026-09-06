@@ -1,6 +1,6 @@
 import {
   Banknote, Building2, ChefHat, ClipboardList, CreditCard, LayoutDashboard, Package,
-  Percent, QrCode, Receipt, Settings, Store, Truck, Users, UtensilsCrossed, Wallet,
+  Percent, QrCode, Receipt, Settings, Store, Truck, Users, UtensilsCrossed, Wallet, ConciergeBell,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -78,6 +78,7 @@ export const RESTAURANT_NAVIGATION: NavigationSection[] = [
     items: [
       { label: 'Staff & roles', to: '/app/staff', icon: Users, permission: 'staff.view' },
       { label: 'Website', to: '/app/website', icon: Store, permission: 'website.view' },
+      { label: 'Mezbaan', to: '/app/mezbaan', icon: ConciergeBell, permission: 'settings.view' },
       { label: 'Settings', to: '/app/settings', icon: Settings, permission: 'settings.view' },
     ],
   },

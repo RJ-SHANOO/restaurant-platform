@@ -109,6 +109,7 @@ model Restaurant {
   auditLogs         AuditLog[]
   website           RestaurantWebsite?
   kitchenStations   KitchenStation[]
+  branchSettings    BranchSettings[]
 
   @@index([status, city])
   @@map("restaurants")
@@ -135,9 +136,6 @@ model Branch {
 
   openingTime String? @map("opening_time") @db.VarChar(5)
   closingTime String? @map("closing_time") @db.VarChar(5)
-
-  taxPercentage           Decimal @default(0) @map("tax_percentage") @db.Decimal(5, 2)
-  serviceChargePercentage Decimal @default(0) @map("service_charge_percentage") @db.Decimal(5, 2)
 
   // How long the kitchen typically takes on this branch. Used only to give a
   // QR customer a rough countdown after their order is confirmed - not a
@@ -166,10 +164,83 @@ model Branch {
   expenses        Expense[]
   devices         Device[]
   branchProducts  BranchProduct[]
+  paymentMethods  PaymentMethod[]
+  settings        BranchSettings?
 
   @@unique([restaurantId, code])
   @@index([restaurantId, status])
   @@map("branches")
+}
+
+// =============================================================================
+//  BRANCH SETTINGS  —  "Mezbaan"
+// =============================================================================
+
+enum BranchDateMode {
+  calendar
+  business
+}
+
+enum ReportGrouping {
+  day
+  shift
+}
+
+// How a branch's effective tax is worked out at checkout. See
+// settingsService.resolveCharges - the only place this enum is interpreted.
+enum TaxMode {
+  disabled
+  uniform
+  per_method
+  fixed
+}
+
+// One row per branch, created lazily (settingsService.getOrCreateBranchSettings)
+// the first time anyone opens Mezbaan for that branch. Everything here is
+// config, not a receipt - changing a rate here never touches an order or
+// invoice already written; those keep whatever was resolved for them at the
+// time, on the Order (estimate) and Invoice (binding) rows themselves.
+model BranchSettings {
+  id           Int @id @default(autoincrement())
+  restaurantId Int @map("restaurant_id")
+  branchId     Int @unique @map("branch_id")
+
+  // ---------------------------------------------------------------- business
+  businessName   String  @map("business_name") @db.VarChar(150)
+  phone          String? @db.VarChar(30)
+  ntn            String? @db.VarChar(30)
+  address        String? @db.VarChar(255)
+  currencySymbol String  @default("Rs") @map("currency_symbol") @db.VarChar(10)
+
+  // -------------------------------------------------------------- operations
+  dateMode       BranchDateMode @default(calendar) @map("date_mode")
+  // "HH:mm", required when dateMode = business - the hour a business day
+  // rolls over at, independent of the branch's display opening/closing time.
+  openingTime    String?        @map("opening_time") @db.VarChar(5)
+  reportGrouping ReportGrouping @default(day) @map("report_grouping")
+
+  // ----------------------------------------------------------- tax & charges
+  taxMode              TaxMode @default(disabled) @map("tax_mode")
+  uniformRate          Decimal @default(0) @map("uniform_rate") @db.Decimal(5, 2)
+  fixedAmount          Decimal @default(0) @map("fixed_amount") @db.Decimal(12, 2)
+  serviceChargeEnabled Boolean @default(false) @map("service_charge_enabled")
+  serviceChargeRate    Decimal @default(0) @map("service_charge_rate") @db.Decimal(5, 2)
+
+  // ------------------------------------------------------------- online ordering
+  acceptOnlineOrders Boolean @default(false) @map("accept_online_orders")
+  deliveryEnabled    Boolean @default(false) @map("delivery_enabled")
+  pickupEnabled      Boolean @default(false) @map("pickup_enabled")
+  deliveryFee        Decimal @default(0) @map("delivery_fee") @db.Decimal(12, 2)
+  minimumOrder       Decimal @default(0) @map("minimum_order") @db.Decimal(12, 2)
+  deliveryRadiusKm   Decimal @default(5) @map("delivery_radius_km") @db.Decimal(6, 2)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  branch     Branch     @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@map("branch_settings")
 }
 
 // =============================================================================
@@ -971,6 +1042,7 @@ model PurchaseItem {
 model PaymentMethod {
   id           Int    @id @default(autoincrement())
   restaurantId Int    @map("restaurant_id")
+  branchId     Int    @map("branch_id")
   name         String @db.VarChar(80)
   code         String @db.VarChar(40)
   kind         String @default("cash") @db.VarChar(20) // cash | card | wallet | bank | online
@@ -981,17 +1053,26 @@ model PaymentMethod {
   qrImageUrl        String? @map("qr_image_url") @db.VarChar(500)
   instructions      String? @db.VarChar(500)
 
+  // Only read when the branch's BranchSettings.taxMode = per_method.
+  taxRate Decimal @default(0) @map("tax_rate") @db.Decimal(5, 2)
+
   isActive  Boolean @default(true) @map("is_active")
   sortOrder Int     @default(0) @map("sort_order")
 
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  // Soft delete, not hard: past payments and invoices keep pointing at this
+  // row (name, code, the rate that applied) even after a restaurant removes
+  // it from the counter.
+  deletedAt DateTime? @map("deleted_at")
 
   restaurant        Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  branch            Branch     @relation(fields: [branchId], references: [id], onDelete: Cascade)
   payments          Payment[]
   preferredByOrders Order[]
+  invoices          Invoice[]
 
-  @@unique([restaurantId, code])
+  @@unique([branchId, code])
   @@map("payment_methods")
 }
 
@@ -1019,6 +1100,18 @@ model Invoice {
   paidAmount     Decimal @default(0) @map("paid_amount") @db.Decimal(12, 2)
   refundedAmount Decimal @default(0) @map("refunded_amount") @db.Decimal(12, 2)
 
+  // The binding rate resolved by settingsService.resolveCharges when this
+  // invoice was created - never recalculated afterwards, even if
+  // BranchSettings changes later. paymentMethodId/Name is whichever method
+  // was known at that moment (immediate POS settle: the tender; otherwise the
+  // order's preferred method, if any) - not necessarily every method a split
+  // payment later actually used.
+  taxMode           TaxMode @default(disabled) @map("tax_mode")
+  taxRate           Decimal @default(0) @map("tax_rate") @db.Decimal(5, 2)
+  serviceChargeRate Decimal @default(0) @map("service_charge_rate") @db.Decimal(5, 2)
+  paymentMethodId   Int?    @map("payment_method_id")
+  paymentMethodName String? @map("payment_method_name") @db.VarChar(80)
+
   qrPayload  String?   @map("qr_payload") @db.VarChar(500)
   issuedAt   DateTime  @default(now()) @map("issued_at")
   paidAt     DateTime? @map("paid_at")
@@ -1028,12 +1121,13 @@ model Invoice {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  restaurant Restaurant        @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
-  branch     Branch            @relation(fields: [branchId], references: [id], onDelete: Restrict)
-  order      Order             @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  payments   Payment[]
-  refunds    Refund[]
-  commission CommissionEntry[]
+  restaurant    Restaurant        @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  branch        Branch            @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  order         Order             @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  paymentMethod PaymentMethod?    @relation(fields: [paymentMethodId], references: [id], onDelete: SetNull)
+  payments      Payment[]
+  refunds       Refund[]
+  commission    CommissionEntry[]
 
   @@unique([restaurantId, invoiceNumber])
   @@index([branchId, issuedAt])

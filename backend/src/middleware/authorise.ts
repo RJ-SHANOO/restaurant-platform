@@ -78,3 +78,31 @@ export function assertBranchAccess(req: Request, branchId: number): void {
     throw HttpError.forbidden('That branch is not yours.');
   }
 }
+
+/**
+ * The branch a branch-scoped endpoint (Mezbaan settings, payment methods)
+ * operates on: a branch-bound user's own branch, or - for an owner, whose
+ * branchId is null because they see every branch - whichever branch they
+ * asked for via ?branchId=. Either way assertBranchAccess still gets the
+ * final say, so a branch-bound user cannot override their own branch by
+ * passing a different one in the query string.
+ */
+export function resolveBranchId(req: Request): number {
+  const actor = req.actor;
+
+  if (!actor) {
+    throw HttpError.unauthorised();
+  }
+
+  const queried = typeof req.query.branchId === 'string' ? Number(req.query.branchId) : undefined;
+  const branchId = actor.branchId ?? queried;
+
+  if (!branchId || Number.isNaN(branchId)) {
+    throw HttpError.validation({
+      branchId: ['Pass a branchId - your account is not bound to a single branch.'],
+    });
+  }
+
+  assertBranchAccess(req, branchId);
+  return branchId;
+}

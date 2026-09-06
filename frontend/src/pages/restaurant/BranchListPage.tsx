@@ -63,23 +63,11 @@ export default function BranchListPage() {
                 </p>
               )}
 
-              <dl className="mt-4 grid grid-cols-3 gap-3 border-t border-line pt-4">
+              <dl className="mt-4 grid grid-cols-1 gap-3 border-t border-line pt-4">
                 <div>
                   <dt className="eyebrow">Tables</dt>
                   <dd className="numeric mt-1 text-lg font-semibold text-ink">
                     {branch.counts?.diningTables ?? 0}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="eyebrow">Tax</dt>
-                  <dd className="numeric mt-1 text-lg font-semibold text-ink">
-                    {branch.charges.taxPercentage}%
-                  </dd>
-                </div>
-                <div>
-                  <dt className="eyebrow">Service</dt>
-                  <dd className="numeric mt-1 text-lg font-semibold text-ink">
-                    {branch.charges.serviceChargePercentage}%
                   </dd>
                 </div>
               </dl>

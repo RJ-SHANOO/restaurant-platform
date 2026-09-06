@@ -1,9 +1,10 @@
 import { Prisma, type OrderStatus } from '@prisma/client';
 import { prisma } from '../config/prisma';
 import { HttpError } from '../utils/apiResponse';
-import { calculateOrderTotals, money } from '../utils/money';
+import { money } from '../utils/money';
 import { documentNumber } from '../utils/documentNumber';
 import { businessDateFor } from '../utils/businessDate';
+import { resolveCharges } from './settingsService';
 import { kitchenService } from './kitchenService';
 import { inventoryService } from './inventoryService';
 
@@ -223,7 +224,7 @@ export const orderService = {
 
         const preferredPaymentMethod = input.preferredPaymentMethodId
           ? await tx.paymentMethod.findFirst({
-              where: { id: input.preferredPaymentMethodId, restaurantId, isActive: true },
+              where: { id: input.preferredPaymentMethodId, branchId: input.branchId, deletedAt: null, isActive: true },
               select: { id: true },
             })
           : null;
@@ -236,10 +237,12 @@ export const orderService = {
 
         const lines = await buildOrderLines(tx, restaurantId, input.branchId, input.items);
 
-        const totals = calculateOrderTotals({
+        // An estimate only - shown on the POS/cart before checkout. The
+        // binding number is resolved again, from the actual payment method,
+        // when the bill is issued (billingService.createInvoiceForOrder).
+        const charges = await resolveCharges(tx, restaurantId, branch.id, {
           subtotal: money.sum(lines.map((line) => line.lineTotal)),
-          serviceChargePercentage: Number(branch.serviceChargePercentage),
-          taxPercentage: Number(branch.taxPercentage),
+          paymentMethodId: preferredPaymentMethod?.id ?? null,
         });
 
         const { orderNumber, sequence } = await documentNumber.forOrder(tx, branch.id, branch.code);
@@ -272,12 +275,12 @@ export const orderService = {
             tokenNumber: sequence,
             tableNumber: diningTable?.label ?? null,
             orderTakerName: input.orderTakerName?.slice(0, 150) ?? null,
-            subtotal: totals.subtotal,
-            discountAmount: totals.discountAmount,
-            serviceChargePercent: branch.serviceChargePercentage,
-            serviceCharge: totals.serviceCharge,
-            taxAmount: totals.taxAmount,
-            grandTotal: totals.grandTotal,
+            subtotal: charges.subtotal,
+            discountAmount: charges.discountAmount,
+            serviceChargePercent: charges.serviceChargeRate,
+            serviceCharge: charges.serviceChargeAmount,
+            taxAmount: charges.taxAmount,
+            grandTotal: charges.total,
             items: { create: lines },
             statusHistory: {
               create: { toStatus: 'pending', changedBy: actorId ?? null },
@@ -478,11 +481,10 @@ export const orderService = {
           ...newLines.map((line) => line.lineTotal),
         ]);
 
-        const totals = calculateOrderTotals({
+        const charges = await resolveCharges(tx, restaurantId, order.branchId, {
           subtotal,
           discountAmount: order.discountAmount,
-          serviceChargePercentage: Number(order.branch.serviceChargePercentage),
-          taxPercentage: Number(order.branch.taxPercentage),
+          paymentMethodId: order.preferredPaymentMethodId ?? null,
         });
 
         const originalItemIds = new Set(order.items.map((item) => item.id));
@@ -490,10 +492,11 @@ export const orderService = {
         const updated = await tx.order.update({
           where: { id: order.id },
           data: {
-            subtotal: totals.subtotal,
-            serviceCharge: totals.serviceCharge,
-            taxAmount: totals.taxAmount,
-            grandTotal: totals.grandTotal,
+            subtotal: charges.subtotal,
+            serviceChargePercent: charges.serviceChargeRate,
+            serviceCharge: charges.serviceChargeAmount,
+            taxAmount: charges.taxAmount,
+            grandTotal: charges.total,
             items: { create: newLines },
           },
           include: orderInclude,

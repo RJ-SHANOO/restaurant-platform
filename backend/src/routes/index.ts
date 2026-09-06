@@ -21,6 +21,7 @@ import { websiteController } from '../controllers/websiteController';
 import { platformController } from '../controllers/platformController';
 import { qrController } from '../controllers/qrController';
 import { settingsController } from '../controllers/settingsController';
+import { branchSettingsController } from '../controllers/branchSettingsController';
 import { uploadController } from '../controllers/uploadController';
 import { staffController } from '../controllers/staffController';
 
@@ -169,6 +170,11 @@ tenant.post('/uploads', uploadController.store);
 // Settings (the restaurant's own profile)
 tenant.get('/settings', requirePermission('settings.view'), settingsController.show);
 tenant.put('/settings', requirePermission('settings.update'), settingsController.update);
+
+// Mezbaan: one branch's own business profile, hours, tax mode and online
+// ordering. Owner or Branch Manager only, same settings.* permissions as above.
+tenant.get('/branch-settings', requirePermission('settings.view'), branchSettingsController.show);
+tenant.patch('/branch-settings', requirePermission('settings.update'), branchSettingsController.update);
 
 // Staff and roles
 tenant.get('/staff', requirePermission('staff.view'), staffController.index);

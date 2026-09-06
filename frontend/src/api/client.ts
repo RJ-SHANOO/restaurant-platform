@@ -83,6 +83,16 @@ function createClient(): AxiosInstance {
 
 export const http = createClient();
 
+/**
+ * True when the request never reached a server - offline, DNS failure, or the
+ * API is unreachable - as opposed to a business error the server rejected.
+ * The bridge plan hinges on this distinction: a connectivity failure is safe
+ * to retry under the same idempotency key, a validation error is not.
+ */
+export function isConnectivityError(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 0;
+}
+
 /** Unwraps the `data` envelope so callers work with plain domain objects. */
 export async function apiGet<T>(url: string, params?: Record<string, unknown>): Promise<T> {
   const { data } = await http.get<ApiEnvelope<T>>(url, { params });
@@ -95,23 +105,23 @@ export async function apiGetPaged<T>(url: string, params?: Record<string, unknow
   return { items: data.data, pagination: data.meta?.pagination };
 }
 
-export async function apiPost<T>(url: string, body?: unknown): Promise<T> {
-  const { data } = await http.post<ApiEnvelope<T>>(url, body);
+export async function apiPost<T>(url: string, body?: unknown, params?: Record<string, unknown>): Promise<T> {
+  const { data } = await http.post<ApiEnvelope<T>>(url, body, { params });
   return data.data;
 }
 
-export async function apiPatch<T>(url: string, body?: unknown): Promise<T> {
-  const { data } = await http.patch<ApiEnvelope<T>>(url, body);
+export async function apiPatch<T>(url: string, body?: unknown, params?: Record<string, unknown>): Promise<T> {
+  const { data } = await http.patch<ApiEnvelope<T>>(url, body, { params });
   return data.data;
 }
 
-export async function apiPut<T>(url: string, body?: unknown): Promise<T> {
-  const { data } = await http.put<ApiEnvelope<T>>(url, body);
+export async function apiPut<T>(url: string, body?: unknown, params?: Record<string, unknown>): Promise<T> {
+  const { data } = await http.put<ApiEnvelope<T>>(url, body, { params });
   return data.data;
 }
 
-export async function apiDelete(url: string): Promise<void> {
-  await http.delete(url);
+export async function apiDelete(url: string, params?: Record<string, unknown>): Promise<void> {
+  await http.delete(url, { params });
 }
 
 /**

@@ -125,7 +125,7 @@ const ROLE_MATRIX: Record<string, { name: string; description: string; permissio
       'expenses.view', 'expenses.record',
       'customers.view', 'customers.create', 'customers.update', 'customers.delete',
       'staff.view',
-      'settings.view',
+      'settings.view', 'settings.update',
     ],
   },
 
@@ -426,8 +426,6 @@ async function seedDemoRestaurant(definition: DemoDefinition) {
         addressLine: branchDefinition.address,
         city: definition.city,
         phone: '04211112222',
-        taxPercentage: 16,
-        serviceChargePercentage: 5,
         openingTime: '12:00',
         closingTime: '23:30',
         status: 'active',

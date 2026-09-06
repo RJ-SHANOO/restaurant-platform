@@ -15,7 +15,7 @@ restaurant-platform/
 │   ├── render.yaml                    ✅ One-click deploy config
 │   │
 │   ├── prisma/
-│   │   ├── schema.prisma              ✅ Every table, 35 models
+│   │   ├── schema.prisma              ✅ Every table, 36 models
 │   │   └── seed.ts                    ✅ seedCore() always; seedDemo() behind SEED_DEMO_DATA
 │   │   
 │   ├── scripts/
@@ -51,12 +51,17 @@ restaurant-platform/
 │       │   ├── billingService.ts      ✅ Invoice, payment, refund
 │       │   ├── commissionService.ts   ✅ Accrual, reversal, settlement
 │       │   ├── reportService.ts       ✅ Sales summary, revenue by day, top items
-│       │   └── websiteService.ts      ✅ Per-restaurant site and theme
+│       │   ├── websiteService.ts      ✅ Per-restaurant site and theme
+│       │   └── settingsService.ts     ✅ resolveCharges() — Mezbaan tax/service-charge
+│       │                                 math, called from orderService (estimate) and
+│       │                                 billingService (binding, at invoice-issue time)
 │       │
 │       ├── controllers/
 │       │   ├── authController.ts      ✅
 │       │   ├── staffController.ts     ✅ Staff accounts + role listing (see staffService)
 │       │   ├── settingsController.ts  ✅ Restaurant profile (name, contact, currency…)
+│       │   ├── branchSettingsController.ts ✅ Mezbaan — one branch's business profile,
+│       │   │                                 hours, tax mode, online ordering
 │       │   ├── uploadController.ts    ✅ One image-upload endpoint, used by every form
 │       │   ├── branchController.ts    ✅ Reference CRUD pattern — copy this
 │       │   ├── menuController.ts      ✅ Categories, products, modifier groups
@@ -103,15 +108,18 @@ restaurant-platform/
         │   ├── ui/                    ✅ Button, TextField, ImageUploadField, StatCard, Modal,
         │   │                             NotificationBell, …
         │   ├── shared/KitchenTicketCard.tsx  ✅ Signature component
-        │   └── website/               ✅ WebsiteEditorPage's 5 tabs, shared field
-        │                                 atoms, live preview
+        │   ├── website/               ✅ WebsiteEditorPage's 5 tabs, shared field
+        │   │                             atoms, live preview
+        │   └── settings/              ✅ Mezbaan's 4 tabs + PaymentMethodsManager,
+        │                                 shared between MezbaanSettingsPage and the
+        │                                 standalone PaymentMethodsPage
         ├── pages/
         │   ├── auth/                  ✅ Login, Register (with terms)
         │   ├── platform/              ✅ Dashboard, RestaurantList
         │   ├── restaurant/            ✅ Dashboard, Branches, Orders, Menu, Tables,
         │   │                             Inventory, Suppliers, Customers, Staff, Settings,
-        │   │                             PaymentMethods, Expenses, Reports, WebsiteEditor ←
-        │   │                             the theme editor
+        │   │                             Mezbaan, PaymentMethods, Expenses, Reports,
+        │   │                             WebsiteEditor ← the theme editor
         │   ├── pos/                   ✅ PosTerminal
         │   ├── kitchen/                ✅ KitchenDisplay
         │   ├── publicsite/            ✅ QrMenu, PublicSite (`/site/:slug`)
