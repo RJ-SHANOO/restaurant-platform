@@ -78,8 +78,8 @@ export const RESTAURANT_NAVIGATION: NavigationSection[] = [
     items: [
       { label: 'Staff & roles', to: '/app/staff', icon: Users, permission: 'staff.view' },
       { label: 'Website', to: '/app/website', icon: Store, permission: 'website.view' },
-      { label: 'Mezbaan', to: '/app/mezbaan', icon: ConciergeBell, permission: 'settings.view' },
-      { label: 'Settings', to: '/app/settings', icon: Settings, permission: 'settings.view' },
+      { label: 'Settings', to: '/app/mezbaan', icon: Settings, permission: 'settings.view' },
+      { label: 'Restaurant Profile', to: '/app/settings', icon: ConciergeBell, permission: 'settings.view' },
     ],
   },
 ];
