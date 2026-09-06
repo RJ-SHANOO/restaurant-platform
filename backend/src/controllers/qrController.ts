@@ -105,7 +105,7 @@ export const qrController = {
       const site = table.restaurant.website;
 
       const paymentMethods = await prisma.paymentMethod.findMany({
-        where: { restaurantId: table.restaurant.id, isActive: true },
+        where: { branchId: table.branchId, isActive: true, deletedAt: null },
         orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
         select: { id: true, name: true, kind: true },
       });
