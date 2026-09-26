@@ -1,16 +1,25 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Minus, Plus, Search, ShoppingCart, Trash2, UtensilsCrossed } from 'lucide-react';
+import { Check, Minus, Plus, Search, ShoppingCart, Trash2, UtensilsCrossed, User, X } from 'lucide-react';
 import { toast } from 'sonner';
 import clsx from 'clsx';
-import { apiGet, apiPost, ApiError } from '@/api/client';
+import { apiGet, apiPost, ApiError, isConnectivityError } from '@/api/client';
 import { endpoints } from '@/api/endpoints';
 import { Button } from '@/components/ui/Button';
 import { TextField } from '@/components/ui/TextField';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { PendingSyncPill } from '@/components/ui/StatusPill';
 import { formatMoney } from '@/utils/format';
 import { useAuth } from '@/context/AuthContext';
-import type { MenuProduct, Order } from '@/types/api';
+import type { Customer, MenuProduct, Order } from '@/types/api';
+
+type OrderType = 'dine_in' | 'takeaway' | 'delivery';
+
+const ORDER_TYPES: { value: OrderType; label: string }[] = [
+  { value: 'dine_in', label: 'Dine-in' },
+  { value: 'takeaway', label: 'Takeaway' },
+  { value: 'delivery', label: 'Delivery' },
+];
 
 interface CartLine {
   product: MenuProduct;
@@ -60,6 +69,43 @@ export default function PosTerminalPage() {
   const [search, setSearch] = useState('');
   const [cart, setCart] = useState<CartLine[]>([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
+  const [orderType, setOrderType] = useState<OrderType>('dine_in');
+
+  // Customer capture for takeaway/delivery - a phone number that already
+  // exists brings its saved name and address back instead of making the
+  // counter staff type them out again every time the same person orders.
+  const [phone, setPhone] = useState('');
+  const [matchedCustomer, setMatchedCustomer] = useState<Customer | null>(null);
+  const [newCustomerName, setNewCustomerName] = useState('');
+  const [newCustomerAddress, setNewCustomerAddress] = useState('');
+
+  const phoneComplete = /^0[0-9]{10}$/.test(phone);
+
+  const { data: phoneMatches, isFetching: isLookingUpCustomer } = useQuery({
+    queryKey: ['customers', 'lookup', phone],
+    queryFn: () => apiGet<Customer[]>(endpoints.customers.list, { search: phone }),
+    enabled: orderType !== 'dine_in' && phoneComplete && !matchedCustomer,
+  });
+
+  useEffect(() => {
+    const exact = phoneMatches?.find((customer) => customer.phone === phone);
+    if (exact) setMatchedCustomer(exact);
+  }, [phoneMatches, phone]);
+
+  useEffect(() => {
+    if (matchedCustomer && matchedCustomer.phone !== phone) setMatchedCustomer(null);
+  }, [phone, matchedCustomer]);
+
+  const resetCustomer = () => {
+    setPhone('');
+    setMatchedCustomer(null);
+    setNewCustomerName('');
+    setNewCustomerAddress('');
+  };
+  // Set when the last send failed to reach the server at all - not a bad
+  // order, just an offline moment. The cart and idempotency key are kept as
+  // they are, so tapping "Send order" again is a safe retry, not a duplicate.
+  const [pendingSync, setPendingSync] = useState(false);
 
   // One key per order attempt, not per request: a retry of the same "Send
   // order" (a slow network, a cashier tapping twice) must replay under the
@@ -110,29 +156,59 @@ export default function PosTerminalPage() {
   };
 
   const placeOrder = useMutation({
-    mutationFn: () =>
-      apiPost<Order>(endpoints.orders.list, {
+    mutationFn: async () => {
+      // A phone that matched an existing customer just reuses that id. One
+      // that didn't but came with a name registers a new customer first, so
+      // next time this same number is typed, it comes back matched too.
+      let customerId = matchedCustomer?.id;
+
+      if (!customerId && orderType !== 'dine_in' && phoneComplete && newCustomerName.trim().length >= 2) {
+        const created = await apiPost<Customer>(endpoints.customers.create, {
+          fullName: newCustomerName.trim(),
+          phone,
+          addressLine: newCustomerAddress || null,
+        });
+        customerId = created.id;
+      }
+
+      return apiPost<Order>(endpoints.orders.list, {
         branchId: user?.scope.branchId,
-        orderType: 'dine_in',
+        orderType,
+        customerId,
         idempotencyKey: idempotencyKeyRef.current,
         items: cart.map((line) => ({
           productId: line.product.id,
           quantity: line.quantity,
           kitchenNote: line.kitchenNote,
         })),
-      }),
+      });
+    },
     onSuccess: (order) => {
       toast.success(`Order ${order.orderNumber} sent to the counter queue.`);
       setCart([]);
       setIsCartOpen(false);
+      setPendingSync(false);
+      resetCustomer();
+      setOrderType('dine_in');
       // This key now belongs to the order that was just created. The next
       // "Send order" is a different order and needs a key of its own.
       idempotencyKeyRef.current = crypto.randomUUID();
       queryClient.invalidateQueries({ queryKey: ['orders'] });
     },
-    onError: (error) =>
-      toast.error(error instanceof ApiError ? error.message : 'Could not place that order.'),
+    onError: (error) => {
+      if (isConnectivityError(error)) {
+        setPendingSync(true);
+        toast.error('No connection. The order is kept here - tap Send order again once you are back online.');
+      } else {
+        setPendingSync(false);
+        toast.error(error instanceof ApiError ? error.message : 'Could not place that order.');
+      }
+    },
   });
+
+  const canPlaceOrder =
+    cart.length > 0 &&
+    (orderType !== 'delivery' || (phoneComplete && (matchedCustomer || newCustomerName.trim().length >= 2)));
 
   return (
     <div className="flex h-full">
@@ -188,16 +264,97 @@ export default function PosTerminalPage() {
         )}
       >
         <header className="flex items-center justify-between border-b border-line px-4 py-3.5">
-          <h2 className="font-display text-sm font-semibold text-ink">Current order</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="font-display text-sm font-semibold text-ink">Current order</h2>
+            {pendingSync && <PendingSyncPill />}
+          </div>
           {cart.length > 0 && (
             <button
-              onClick={() => setCart([])}
+              onClick={() => {
+                setCart([]);
+                setPendingSync(false);
+              }}
               className="btn btn-ghost text-xs"
             >
               <Trash2 className="h-3.5 w-3.5" /> Clear
             </button>
           )}
         </header>
+
+        <div className="flex gap-1.5 border-b border-line px-3 py-2.5">
+          {ORDER_TYPES.map((type) => (
+            <button
+              key={type.value}
+              onClick={() => {
+                setOrderType(type.value);
+                if (type.value === 'dine_in') resetCustomer();
+              }}
+              className={clsx(
+                'flex-1 rounded-control px-2 py-1.5 text-xs font-medium transition-colors',
+                orderType === type.value ? 'bg-ember text-void' : 'bg-raised text-ink-soft hover:text-ink',
+              )}
+            >
+              {type.label}
+            </button>
+          ))}
+        </div>
+
+        {orderType !== 'dine_in' && (
+          <div className="space-y-2.5 border-b border-line px-3 py-3">
+            <TextField
+              label={`Customer phone${orderType === 'delivery' ? '' : ' (optional)'}`}
+              value={phone}
+              onChange={(event) => setPhone(event.target.value.replace(/\D/g, ''))}
+              maxLength={11}
+              inputMode="numeric"
+              placeholder="03001234567"
+              leadingIcon={<User className="h-4 w-4" />}
+            />
+
+            {phoneComplete && isLookingUpCustomer && (
+              <p className="text-xs text-ink-faint">Checking saved customers…</p>
+            )}
+
+            {phoneComplete && matchedCustomer && (
+              <div className="flex items-start justify-between gap-2 rounded-control bg-mint-soft px-3 py-2 text-xs text-ink">
+                <div className="flex items-start gap-1.5">
+                  <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-mint" />
+                  <div>
+                    <p className="font-medium">{matchedCustomer.fullName}</p>
+                    {matchedCustomer.addressLine && (
+                      <p className="mt-0.5 text-ink-soft">{matchedCustomer.addressLine}</p>
+                    )}
+                    <p className="mt-0.5 text-ink-faint">Saved customer · {matchedCustomer.orderCount} order(s) before</p>
+                  </div>
+                </div>
+                <button onClick={resetCustomer} className="shrink-0 text-ink-faint hover:text-ink" aria-label="Not this customer">
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            )}
+
+            {phoneComplete && !matchedCustomer && !isLookingUpCustomer && (
+              <>
+                <TextField
+                  label="Name"
+                  value={newCustomerName}
+                  onChange={(event) => setNewCustomerName(event.target.value)}
+                  placeholder="New customer"
+                />
+                <TextField
+                  label="Delivery address"
+                  value={newCustomerAddress}
+                  onChange={(event) => setNewCustomerAddress(event.target.value)}
+                  placeholder="House, street, area"
+                />
+                <p className="text-xs text-ink-faint">
+                  Not in the system yet - saved once this order goes through, so next time this number comes back
+                  filled in.
+                </p>
+              </>
+            )}
+          </div>
+        )}
 
         <div className="flex-1 overflow-y-auto p-3">
           {cart.length === 0 ? (
@@ -248,13 +405,15 @@ export default function PosTerminalPage() {
             <span className="numeric">{formatMoney(subtotal)}</span>
           </div>
           <p className="text-xs text-ink-faint">
-            Tax and service charge shown here are an estimate. The binding rate is resolved when the bill is issued.
+            {pendingSync
+              ? 'No connection reached the server. Nothing was lost - tap Send order again once you are back online.'
+              : 'Tax and service charge shown here are an estimate. The binding rate is resolved when the bill is issued.'}
           </p>
 
           <Button
             size="lg"
             className="w-full"
-            disabled={cart.length === 0}
+            disabled={!canPlaceOrder}
             isLoading={placeOrder.isPending}
             onClick={() => placeOrder.mutate()}
           >

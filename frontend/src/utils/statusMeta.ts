@@ -39,3 +39,16 @@ export const PILL_CLASS: Record<Tone, string> = {
 export function orderStatusPillClass(status: OrderStatus): string {
   return PILL_CLASS[ORDER_STATUS_META[status].tone];
 }
+
+/**
+ * Not a real OrderStatus - the order was never created on the server, so it
+ * has no row and no status yet. This is the client-only "the bridge hasn't
+ * synced this one" state from the offline continuity plan.
+ */
+export const PENDING_SYNC_META: StatusMeta = {
+  label: 'Pending sync',
+  tone: 'ember',
+  hint: 'Not yet reached the server. Kept here, safe to retry.',
+};
+
+export const PENDING_SYNC_PILL_CLASS = PILL_CLASS[PENDING_SYNC_META.tone];

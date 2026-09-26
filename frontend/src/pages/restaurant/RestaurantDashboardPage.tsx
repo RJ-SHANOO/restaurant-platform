@@ -1,23 +1,36 @@
+import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Clock, Receipt, TrendingUp, Utensils } from 'lucide-react';
+import { Clock, LayoutGrid, Receipt, TrendingUp, Users, Utensils } from 'lucide-react';
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import clsx from 'clsx';
 import { apiGet } from '@/api/client';
 import { endpoints } from '@/api/endpoints';
 import { StatCard } from '@/components/ui/StatCard';
 import { StatCardSkeleton } from '@/components/ui/Skeleton';
 import { OrderStatusPill } from '@/components/ui/StatusPill';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { Skeleton } from '@/components/ui/Skeleton';
 import { formatCompactMoney, formatMoney, formatNumber, formatRelative } from '@/utils/format';
 import { useAuth } from '@/context/AuthContext';
-import type { Order } from '@/types/api';
+import type { DiningTable, Order, TableStatus } from '@/types/api';
+import { STATUS_LABEL, STATUS_PILL } from './TablesPage';
 
 export default function RestaurantDashboardPage() {
-  const { user } = useAuth();
+  const { user, can } = useAuth();
 
   const { data: orders, isLoading } = useQuery({
     queryKey: ['orders', 'today'],
     queryFn: () => apiGet<Order[]>(endpoints.orders.list, { perPage: 25 }),
     refetchInterval: 30_000,
+  });
+
+  const canViewTables = can('tables.view');
+
+  const { data: tables, isLoading: isLoadingTables } = useQuery({
+    queryKey: ['tables'],
+    queryFn: () => apiGet<DiningTable[]>(endpoints.tables.list),
+    refetchInterval: 15_000,
+    enabled: canViewTables,
   });
 
   const paidOrders = orders?.filter((order) => order.paymentStatus === 'paid') ?? [];
@@ -138,7 +151,89 @@ export default function RestaurantDashboardPage() {
           )}
         </section>
       </div>
+
+      {canViewTables && <FloorMap tables={tables} isLoading={isLoadingTables} />}
     </div>
+  );
+}
+
+const STATUS_ORDER: TableStatus[] = ['occupied', 'available', 'reserved', 'out_of_service'];
+
+const DOT_TONE: Record<TableStatus, string> = {
+  available: 'bg-mint',
+  occupied: 'bg-ember',
+  reserved: 'bg-sky',
+  out_of_service: 'bg-ink-faint',
+};
+
+const TILE_TONE: Record<TableStatus, string> = {
+  available: 'border-mint/30 bg-mint-soft',
+  occupied: 'border-ember/30 bg-ember-soft',
+  reserved: 'border-sky/30 bg-sky-soft',
+  out_of_service: 'border-line bg-raised',
+};
+
+function FloorMap({ tables, isLoading }: { tables: DiningTable[] | undefined; isLoading: boolean }) {
+  const counts = (tables ?? []).reduce<Record<string, number>>((acc, table) => {
+    acc[table.status] = (acc[table.status] ?? 0) + 1;
+    return acc;
+  }, {});
+
+  return (
+    <section className="panel p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-base font-semibold text-ink">Floor map</h2>
+          <p className="text-xs text-ink-soft">Live table status - refreshes every 15s</p>
+        </div>
+        <Link to="/app/tables" className="text-xs font-medium text-ember hover:underline">
+          Manage tables
+        </Link>
+      </div>
+
+      {isLoading ? (
+        <div className="mt-4 grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-6 xl:grid-cols-8">
+          {Array.from({ length: 8 }).map((_, index) => (
+            <Skeleton key={index} className="h-[76px] w-full" />
+          ))}
+        </div>
+      ) : tables && tables.length > 0 ? (
+        <>
+          <div className="mt-3 flex flex-wrap gap-4">
+            {STATUS_ORDER.map((status) => (
+              <span key={status} className="inline-flex items-center gap-1.5 text-xs text-ink-soft">
+                <span className={clsx('h-2 w-2 rounded-full', DOT_TONE[status])} />
+                {STATUS_LABEL[status]} · {counts[status] ?? 0}
+              </span>
+            ))}
+          </div>
+
+          <div className="mt-4 grid grid-cols-3 gap-2.5 stagger-children sm:grid-cols-4 md:grid-cols-6 xl:grid-cols-8">
+            {tables.map((table) => (
+              <div
+                key={table.id}
+                title={table.branch?.name ? `${table.branch.name}${table.areaName ? ' · ' + table.areaName : ''}` : undefined}
+                className={clsx('rounded-control border p-2.5 text-center', TILE_TONE[table.status])}
+              >
+                <p className="truncate text-sm font-semibold text-ink">{table.label}</p>
+                <p className="mt-0.5 flex items-center justify-center gap-1 text-[11px] text-ink-faint">
+                  <Users className="h-3 w-3" /> {table.capacity}
+                </p>
+                <span className={clsx('pill mt-1.5 inline-flex px-1.5 py-0.5 text-[10px]', STATUS_PILL[table.status])}>
+                  {STATUS_LABEL[table.status]}
+                </span>
+              </div>
+            ))}
+          </div>
+        </>
+      ) : (
+        <EmptyState
+          icon={<LayoutGrid className="h-5 w-5" />}
+          title="No tables yet"
+          description="Add tables from Tables & QR to see live occupancy here."
+        />
+      )}
+    </section>
   );
 }
 

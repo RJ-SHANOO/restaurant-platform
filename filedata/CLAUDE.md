@@ -166,7 +166,83 @@ Super Admin console.
 ### Not built
 
 - Desktop bridge (printers, cash drawer, offline queue) — a native app
-  outside this Node + React stack, not something built here
+  outside this Node + React stack, not something built here. Plan below.
+
+---
+
+## Offline continuity plan — Desktop Bridge (design only, not yet built)
+
+Every branch has a working LAN (WiFi) at all times; only the *internet*
+uplink drops sometimes. Requirement: order-taking and kitchen printing must
+never stop when the internet drops, and everything queued offline must sync
+automatically once it returns. No second machine — the bridge runs on the
+same PC already at the cashier station.
+
+The bridge itself is a small native process outside this repo (per the note
+above), sitting between the cashier's browser and this backend's API.
+
+### Flow
+
+1. Cashier confirms an order. The bridge tries the normal `POST /orders`
+   call first.
+2. **Online:** passes straight through — nothing changes from today.
+3. **Offline:** the bridge
+   - stores the raw order (items, quantities, table, a locally-generated
+     idempotency key, and the real wall-clock business_date) in its own
+     local queue,
+   - immediately builds and sends the kitchen print payload to the thermal
+     printer itself — safe because kitchen tickets never carry a price
+     (rule 5), so printing needs no server round trip and no computed
+     total,
+   - marks the order "pending sync" in the cashier UI.
+4. A background loop in the bridge retries the queue whenever it detects
+   connectivity. Each queued order is POSTed with its original
+   idempotency key (the server must dedupe on this key — an offline
+   replay or a double-send must never create two orders) and its original
+   business_date, not the sync time — the commission engine already keys
+   off business_date for exactly this reason (see Billing Model: late
+   offline sync must land in its original cycle).
+5. The backend computes the real price/tax from the DB as always (rule
+   2) — offline queuing never invents a price; it only defers *when* the
+   price gets computed, not *how*.
+
+### What stays true no matter what
+
+- Tenant/branch identity still comes from the token the bridge already
+  holds, never invented locally (rule 1).
+- Kitchen tickets still carry no prices, online or offline (rule 5).
+- Money is still computed server-side, on sync, from the DB (rule 2).
+- Financial rows are still append-only (rule 3) — a late-synced order is
+  a new row, never a backdated edit to an existing one.
+
+### What this repo needs vs. what the bridge owns
+
+- **Backend (this repo):** `POST /orders` (and any other write the bridge
+  replays) must be idempotent on a client-supplied key, so a replayed
+  offline order can't double-create. Verify/extend this before the bridge
+  is built.
+- **Frontend (this repo):** cashier screen shows a "pending sync" state
+  per order so staff can see what hasn't reached the cloud yet.
+- **Bridge (separate native app, not in this repo):** local queue storage,
+  direct thermal-printer connection, connectivity detection, retry/sync
+  loop.
+
+Status: the two repo-side pieces above are done.
+- Backend: `Order`, `Payment` and `Refund` already carry a unique
+  `idempotencyKey` (see `schema.prisma`), so a replayed create is returned
+  instead of duplicated.
+- Frontend: `PosTerminalPage` and `WaiterPage`'s order composer detect a
+  connectivity failure (`isConnectivityError` in `api/client.ts` — an
+  `ApiError` with `status: 0`, meaning the request never reached a server)
+  and show a `PendingSyncPill` plus a plain-language hint instead of a
+  generic error. The cart and idempotency key are kept as-is, so tapping
+  "Send order" again is a safe retry.
+- No browser-side queue and no auto-retry were added on purpose — that is
+  still the bridge's job. Today, without a bridge, a dropped connection
+  still requires the cashier to tap "Send order" again by hand once back
+  online; this UI just makes that state visible and safe instead of a bare
+  failure. The bridge, when built, can drive the same pill by returning an
+  equivalent "queued" response instead of a connectivity error.
 
 ---
 

@@ -21,14 +21,14 @@ import type { Branch, DiningTable, TableStatus } from '@/types/api';
  * printed and stuck to the table actually comes from.
  */
 
-const STATUS_PILL: Record<TableStatus, string> = {
+export const STATUS_PILL: Record<TableStatus, string> = {
   available: 'pill-mint',
   occupied: 'pill-ember',
   reserved: 'pill-sky',
   out_of_service: 'pill-muted',
 };
 
-const STATUS_LABEL: Record<TableStatus, string> = {
+export const STATUS_LABEL: Record<TableStatus, string> = {
   available: 'Available',
   occupied: 'Occupied',
   reserved: 'Reserved',

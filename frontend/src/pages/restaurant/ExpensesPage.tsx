@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Banknote, Pencil, Plus, Receipt, Trash2 } from 'lucide-react';
+import { Banknote, Download, Pencil, Plus, Receipt, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { apiDelete, apiGet, apiPost, apiPut, ApiError } from '@/api/client';
 import { endpoints } from '@/api/endpoints';
@@ -11,6 +11,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { StatCard } from '@/components/ui/StatCard';
 import { useAuth } from '@/context/AuthContext';
+import { exportToExcel } from '@/utils/exportExcel';
 import type { Branch, Expense } from '@/types/api';
 
 const CATEGORIES = ['Rent', 'Utilities', 'Salaries', 'Maintenance', 'Marketing', 'Supplies', 'Other'];
@@ -51,6 +52,18 @@ export default function ExpensesPage() {
 
   const canRecord = can('expenses.record');
 
+  const handleExport = () => {
+    const rows = (expenses ?? []).map((expense) => ({
+      Date: expense.incurredOn.slice(0, 10),
+      Category: expense.category,
+      Description: expense.description,
+      Branch: expense.branch?.name ?? 'Whole restaurant',
+      'Amount (Rs)': expense.amount,
+    }));
+
+    exportToExcel(rows, 'expenses', 'Expenses');
+  };
+
   const { total, thisMonth } = useMemo(() => {
     const list = expenses ?? [];
     const currentMonth = todayIso().slice(0, 7);
@@ -73,11 +86,22 @@ export default function ExpensesPage() {
           </p>
         </div>
 
-        {canRecord && (
-          <Button leadingIcon={<Plus className="h-4 w-4" />} onClick={() => setModal({ open: true })}>
-            Record expense
+        <div className="flex items-center gap-2">
+          <Button
+            variant="secondary"
+            leadingIcon={<Download className="h-4 w-4" />}
+            disabled={!expenses || expenses.length === 0}
+            onClick={handleExport}
+          >
+            Export
           </Button>
-        )}
+
+          {canRecord && (
+            <Button leadingIcon={<Plus className="h-4 w-4" />} onClick={() => setModal({ open: true })}>
+              Record expense
+            </Button>
+          )}
+        </div>
       </header>
 
       <div className="grid gap-4 sm:grid-cols-2">

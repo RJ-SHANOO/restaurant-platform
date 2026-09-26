@@ -1,13 +1,15 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Banknote, Receipt, TrendingDown, TrendingUp, Wallet } from 'lucide-react';
+import { Banknote, Download, Receipt, TrendingDown, TrendingUp, Wallet } from 'lucide-react';
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { apiGet } from '@/api/client';
 import { endpoints } from '@/api/endpoints';
+import { Button } from '@/components/ui/Button';
 import { StatCard } from '@/components/ui/StatCard';
 import { StatCardSkeleton, Skeleton } from '@/components/ui/Skeleton';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { formatCompactMoney, formatDate, formatNumber } from '@/utils/format';
+import { exportSheetsToExcel } from '@/utils/exportExcel';
 import { useAuth } from '@/context/AuthContext';
 import type { Branch, PaymentBreakdownRow, RevenuePoint, SalesSummary, TopItemRow } from '@/types/api';
 
@@ -60,6 +62,59 @@ export default function ReportsPage() {
   const chartData = (series ?? []).map((point) => ({ ...point, label: formatDate(point.date).replace(/, \d{4}$/, '') }));
   const maxPaymentAmount = Math.max(1, ...(paymentBreakdown ?? []).map((row) => row.amount));
 
+  const canExport = Boolean(summary);
+
+  const handleExport = () => {
+    if (!summary) return;
+
+    exportSheetsToExcel(
+      [
+        {
+          name: 'Summary',
+          rows: [
+            { Metric: 'Range', Value: `${summary.range.from} to ${summary.range.to}` },
+            { Metric: 'Completed orders', Value: summary.orders.completed },
+            { Metric: 'Gross revenue (Rs)', Value: summary.revenue.gross },
+            { Metric: 'Discounts (Rs)', Value: summary.revenue.discounts },
+            { Metric: 'Tax (Rs)', Value: summary.revenue.tax },
+            { Metric: 'Service charge (Rs)', Value: summary.revenue.serviceCharge },
+            { Metric: 'Refunds (Rs)', Value: summary.revenue.refunds },
+            { Metric: 'Net revenue (Rs)', Value: summary.revenue.net },
+            { Metric: 'Average order value (Rs)', Value: summary.revenue.averageOrderValue },
+            { Metric: 'Expenses (Rs)', Value: summary.expenses },
+            { Metric: 'Net after expenses (Rs)', Value: summary.netAfterExpenses },
+          ],
+        },
+        {
+          name: 'Revenue by day',
+          rows: (series ?? []).map((point) => ({
+            Date: point.date,
+            'Revenue (Rs)': point.revenue,
+            Orders: point.orders,
+          })),
+        },
+        {
+          name: 'Top items',
+          rows: (topItems ?? []).map((item, index) => ({
+            Rank: index + 1,
+            Item: item.name,
+            Quantity: item.quantity,
+            'Revenue (Rs)': item.revenue,
+          })),
+        },
+        {
+          name: 'Payment methods',
+          rows: (paymentBreakdown ?? []).map((row) => ({
+            Method: row.name,
+            'Amount (Rs)': row.amount,
+            Count: row.count,
+          })),
+        },
+      ],
+      `report-${from}-to-${to}`,
+    );
+  };
+
   return (
     <div className="space-y-6">
       <header className="flex flex-wrap items-end justify-between gap-4">
@@ -81,6 +136,10 @@ export default function ReportsPage() {
           <input type="date" className="field w-auto" value={from} max={to} onChange={(event) => setFrom(event.target.value)} />
           <span className="text-xs text-ink-faint">to</span>
           <input type="date" className="field w-auto" value={to} min={from} max={isoDaysAgo(0)} onChange={(event) => setTo(event.target.value)} />
+
+          <Button variant="secondary" leadingIcon={<Download className="h-4 w-4" />} disabled={!canExport} onClick={handleExport}>
+            Export
+          </Button>
         </div>
       </header>
 

@@ -1,15 +1,20 @@
-import { useQuery } from '@tanstack/react-query';
+import { useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Building2, MapPin, Plus, QrCode, Truck } from 'lucide-react';
-import { apiGet } from '@/api/client';
+import { toast } from 'sonner';
+import { apiGet, apiPost, ApiError } from '@/api/client';
 import { endpoints } from '@/api/endpoints';
 import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { Modal } from '@/components/ui/Modal';
 import { Skeleton } from '@/components/ui/Skeleton';
+import { TextField } from '@/components/ui/TextField';
 import { useAuth } from '@/context/AuthContext';
 import type { Branch } from '@/types/api';
 
 export default function BranchListPage() {
   const { can } = useAuth();
+  const [modalOpen, setModalOpen] = useState(false);
 
   const { data: branches, isLoading } = useQuery({
     queryKey: ['branches'],
@@ -28,7 +33,9 @@ export default function BranchListPage() {
         </div>
 
         {can('branches.create') && (
-          <Button leadingIcon={<Plus className="h-4 w-4" />}>Add branch</Button>
+          <Button leadingIcon={<Plus className="h-4 w-4" />} onClick={() => setModalOpen(true)}>
+            Add branch
+          </Button>
         )}
       </header>
 
@@ -92,9 +99,96 @@ export default function BranchListPage() {
           icon={<Building2 className="h-6 w-6" />}
           title="No branches yet"
           description="Add your first branch to start taking orders. You can add more outlets at any time."
-          action={can('branches.create') && <Button leadingIcon={<Plus className="h-4 w-4" />}>Add branch</Button>}
+          action={
+            can('branches.create') && (
+              <Button leadingIcon={<Plus className="h-4 w-4" />} onClick={() => setModalOpen(true)}>
+                Add branch
+              </Button>
+            )
+          }
         />
       )}
+
+      {modalOpen && <AddBranchModal onClose={() => setModalOpen(false)} />}
     </div>
+  );
+}
+
+function AddBranchModal({ onClose }: { onClose: () => void }) {
+  const queryClient = useQueryClient();
+  const [name, setName] = useState('');
+  const [code, setCode] = useState('');
+  const [addressLine, setAddressLine] = useState('');
+  const [city, setCity] = useState('');
+  const [phone, setPhone] = useState('');
+
+  const save = useMutation({
+    mutationFn: (payload: Record<string, unknown>) => apiPost(endpoints.branches.create, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['branches'] });
+      toast.success('Branch added.');
+      onClose();
+    },
+    onError: (error) => toast.error(error instanceof ApiError ? error.message : 'Could not save that.'),
+  });
+
+  const codeValid = /^[A-Z0-9-]{2,20}$/.test(code);
+  const canSave = name.trim().length >= 2 && codeValid;
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title="Add branch"
+      description="Each branch gets its own tables, staff, stock and tax rates."
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button
+            isLoading={save.isPending}
+            disabled={!canSave}
+            onClick={() =>
+              save.mutate({
+                name,
+                code,
+                addressLine: addressLine || null,
+                city: city || null,
+                phone: phone || null,
+              })
+            }
+          >
+            Add branch
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <TextField
+          label="Name"
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          placeholder="Gulberg Branch"
+        />
+        <TextField
+          label="Code"
+          value={code}
+          onChange={(event) => setCode(event.target.value.toUpperCase())}
+          placeholder="GLB-01"
+          hint="Capital letters, numbers and hyphens only."
+        />
+        <TextField label="Address" value={addressLine} onChange={(event) => setAddressLine(event.target.value)} />
+        <div className="grid gap-4 sm:grid-cols-2">
+          <TextField label="City" value={city} onChange={(event) => setCity(event.target.value)} />
+          <TextField
+            label="Phone"
+            value={phone}
+            onChange={(event) => setPhone(event.target.value)}
+            maxLength={11}
+            inputMode="numeric"
+            placeholder="03001234567"
+          />
+        </div>
+      </div>
+    </Modal>
   );
 }

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Boxes, ListPlus, Package, Pencil, Plus, Trash2 } from 'lucide-react';
+import { AlertTriangle, Boxes, History, ListPlus, Package, Pencil, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import clsx from 'clsx';
 import { apiDelete, apiGet, apiPost, apiPut, ApiError } from '@/api/client';
@@ -11,7 +11,7 @@ import { Modal } from '@/components/ui/Modal';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { useAuth } from '@/context/AuthContext';
-import type { Branch, InventoryItem, StockLevel } from '@/types/api';
+import type { Branch, InventoryItem, InventoryTransaction, StockLevel } from '@/types/api';
 
 /**
  * Stock, as inventoryService already models it: an append-only ledger with a
@@ -20,7 +20,28 @@ import type { Branch, InventoryItem, StockLevel } from '@/types/api';
  * absolute quantity.
  */
 
-type Tab = 'levels' | 'items';
+/**
+ * Grouped so an item can be stocked in whatever unit it's actually measured
+ * in - oil and milk don't belong in kg. The value is still a free-form
+ * string on the backend; this is just the picker.
+ */
+const UNIT_GROUPS: { label: string; units: string[] }[] = [
+  { label: 'Solid', units: ['kg', 'g'] },
+  { label: 'Liquid', units: ['L', 'ml'] },
+  { label: 'Count', units: ['pcs', 'box', 'pack'] },
+];
+
+type Tab = 'levels' | 'items' | 'history';
+
+const TXN_LABEL: Record<InventoryTransaction['type'], string> = {
+  purchase: 'Purchase',
+  sale: 'Sale',
+  adjustment: 'Adjustment',
+  wastage: 'Wastage',
+  transfer_in: 'Transfer in',
+  transfer_out: 'Transfer out',
+  reversal: 'Reversal',
+};
 
 export default function InventoryPage() {
   const { can, user } = useAuth();
@@ -46,6 +67,12 @@ export default function InventoryPage() {
   const { data: items, isLoading: itemsLoading } = useQuery({
     queryKey: ['inventory', 'items'],
     queryFn: () => apiGet<InventoryItem[]>(endpoints.inventory.items),
+  });
+
+  const { data: transactions, isLoading: transactionsLoading } = useQuery({
+    queryKey: ['inventory', 'transactions', branchId],
+    queryFn: () => apiGet<InventoryTransaction[]>(endpoints.inventory.transactions, { branchId: branchId ?? undefined }),
+    enabled: tab === 'history',
   });
 
   const deleteItem = useMutation({
@@ -75,6 +102,7 @@ export default function InventoryPage() {
         <div className="flex gap-2 rounded-control border border-line bg-raised p-1">
           <TabButton active={tab === 'levels'} onClick={() => setTab('levels')} icon={Boxes}>Stock levels</TabButton>
           <TabButton active={tab === 'items'} onClick={() => setTab('items')} icon={Package}>Items</TabButton>
+          <TabButton active={tab === 'history'} onClick={() => setTab('history')} icon={History}>History</TabButton>
         </div>
       </header>
 
@@ -148,6 +176,76 @@ export default function InventoryPage() {
               icon={<Boxes className="h-6 w-6" />}
               title="Nothing tracked yet"
               description="Levels appear here once an item has moved - a purchase received, a sale, or a manual count."
+            />
+          )}
+        </div>
+      ) : tab === 'history' ? (
+        <div className="space-y-4">
+          {!isBranchBound && branches && branches.length > 1 && (
+            <select
+              className="field max-w-xs"
+              value={branchId ?? ''}
+              onChange={(event) => setBranchId(event.target.value ? Number(event.target.value) : null)}
+            >
+              <option value="">All branches</option>
+              {branches.map((branch) => (
+                <option key={branch.id} value={branch.id}>{branch.name}</option>
+              ))}
+            </select>
+          )}
+
+          {transactionsLoading ? (
+            <div className="space-y-2">
+              {Array.from({ length: 5 }).map((_, index) => (
+                <Skeleton key={index} className="h-14 w-full" />
+              ))}
+            </div>
+          ) : transactions && transactions.length > 0 ? (
+            <div className="panel overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-line text-left text-xs uppercase tracking-wider text-ink-faint">
+                      <th className="px-4 py-3 font-medium">Date</th>
+                      <th className="px-4 py-3 font-medium">Item</th>
+                      {!isBranchBound && <th className="px-4 py-3 font-medium">Branch</th>}
+                      <th className="px-4 py-3 font-medium">Type</th>
+                      <th className="px-4 py-3 font-medium">Change</th>
+                      <th className="px-4 py-3 font-medium">Balance</th>
+                      <th className="px-4 py-3 font-medium">Note</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {transactions.map((txn) => (
+                      <tr key={txn.id} className="border-b border-line last:border-0">
+                        <td className="px-4 py-3 text-ink-faint">{new Date(txn.createdAt).toLocaleString()}</td>
+                        <td className="px-4 py-3 text-ink">{txn.item.name}</td>
+                        {!isBranchBound && <td className="px-4 py-3 text-ink-soft">{txn.branch.name}</td>}
+                        <td className="px-4 py-3">
+                          <span className="pill pill-muted">{TXN_LABEL[txn.type]}</span>
+                        </td>
+                        <td
+                          className={clsx(
+                            'numeric px-4 py-3 font-medium',
+                            txn.quantityDelta < 0 ? 'text-chili' : 'text-mint',
+                          )}
+                        >
+                          {txn.quantityDelta > 0 ? '+' : ''}
+                          {txn.quantityDelta} {txn.item.unit}
+                        </td>
+                        <td className="numeric px-4 py-3 text-ink-soft">{txn.balanceAfter} {txn.item.unit}</td>
+                        <td className="px-4 py-3 text-ink-faint">{txn.note ?? '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : (
+            <EmptyState
+              icon={<History className="h-6 w-6" />}
+              title="No movement yet"
+              description="Every purchase, sale, wastage and adjustment will show up here as it happens."
             />
           )}
         </div>
@@ -304,7 +402,21 @@ function ItemModal({ editing, onClose }: { editing?: InventoryItem; onClose: () 
         <TextField label="Name" value={name} onChange={(event) => setName(event.target.value)} placeholder="Chicken (boneless)" />
         <div className="grid gap-4 sm:grid-cols-2">
           <TextField label="SKU" value={sku} onChange={(event) => setSku(event.target.value)} placeholder="Optional" />
-          <TextField label="Unit" value={unit} onChange={(event) => setUnit(event.target.value)} placeholder="kg" />
+          <div>
+            <label className="field-label">Unit</label>
+            <select className="field" value={unit} onChange={(event) => setUnit(event.target.value)}>
+              {UNIT_GROUPS.map((group) => (
+                <optgroup key={group.label} label={group.label}>
+                  {group.units.map((option) => (
+                    <option key={option} value={option}>{option}</option>
+                  ))}
+                </optgroup>
+              ))}
+              {!UNIT_GROUPS.some((group) => group.units.includes(unit)) && (
+                <option value={unit}>{unit}</option>
+              )}
+            </select>
+          </div>
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
           <TextField
