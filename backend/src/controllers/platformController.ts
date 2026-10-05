@@ -5,6 +5,8 @@ import { apiResponse, HttpError } from '../utils/apiResponse';
 import { commissionService } from '../services/commissionService';
 import { authService } from '../services/authService';
 import { auditLogService } from '../services/auditLogService';
+import { addDays } from '../utils/businessDate';
+import { money } from '../utils/money';
 
 const createRestaurantSchema = z
   .object({
@@ -303,6 +305,65 @@ export const platformController = {
           commissionRate: Number(entry.commissionRate),
         })),
       );
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  /**
+   * Each restaurant's sales, broken out by calendar day - the Super Admin's
+   * "who sold how much, which day" view. Same definition reportService uses
+   * for a single restaurant (completed orders, grandTotal, placedAt's day),
+   * just grouped across every tenant at once instead of one at a time.
+   */
+  async salesByRestaurant(req: Request, res: Response, next: NextFunction) {
+    try {
+      const requestedDays = Number(req.query.days);
+      const days = Number.isInteger(requestedDays) ? Math.min(Math.max(requestedDays, 1), 90) : 7;
+
+      const todayIso = new Date().toISOString().slice(0, 10);
+      const today = new Date(`${todayIso}T00:00:00.000Z`);
+      const startDate = addDays(today, -(days - 1));
+
+      const orders = await prisma.order.findMany({
+        where: {
+          status: 'completed',
+          placedAt: { gte: startDate },
+          ...(req.query.restaurantId ? { restaurantId: Number(req.query.restaurantId) } : {}),
+        },
+        select: {
+          restaurantId: true,
+          placedAt: true,
+          grandTotal: true,
+          restaurant: { select: { name: true } },
+        },
+      });
+
+      const byKey = new Map<
+        string,
+        { restaurantId: number; restaurantName: string; date: string; sales: ReturnType<typeof money.zero>; orders: number }
+      >();
+
+      for (const order of orders) {
+        const date = order.placedAt.toISOString().slice(0, 10);
+        const key = `${order.restaurantId}:${date}`;
+        const bucket = byKey.get(key) ?? {
+          restaurantId: order.restaurantId,
+          restaurantName: order.restaurant.name,
+          date,
+          sales: money.zero(),
+          orders: 0,
+        };
+        bucket.sales = bucket.sales.add(order.grandTotal);
+        bucket.orders += 1;
+        byKey.set(key, bucket);
+      }
+
+      const rows = [...byKey.values()]
+        .map((row) => ({ ...row, sales: Number(row.sales) }))
+        .sort((a, b) => (a.date === b.date ? b.sales - a.sales : b.date.localeCompare(a.date)));
+
+      return apiResponse.success(res, rows);
     } catch (error) {
       next(error);
     }

@@ -1,5 +1,5 @@
 import {
-  Banknote, Building2, ChefHat, ClipboardList, CreditCard, LayoutDashboard, Package,
+  Banknote, BarChart3, Building2, ChefHat, ClipboardList, CreditCard, LayoutDashboard, Package,
   Percent, QrCode, Receipt, Settings, Store, Truck, Users, UtensilsCrossed, Wallet, ConciergeBell,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -31,6 +31,7 @@ export const PLATFORM_NAVIGATION: NavigationSection[] = [
   {
     title: 'Revenue',
     items: [
+      { label: 'Daily sales', to: '/platform/sales', icon: BarChart3 },
       { label: 'Commission', to: '/platform/commission', icon: Percent },
       { label: 'Settlements', to: '/platform/settlements', icon: Wallet },
     ],

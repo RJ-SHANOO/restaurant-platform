@@ -23,6 +23,7 @@ export const endpoints = {
     settle: (id: number) => `/platform/restaurants/${id}/settle`,
     settlements: '/platform/settlements',
     commission: '/platform/commission',
+    salesByRestaurant: '/platform/reports/sales-by-restaurant',
     activity: '/platform/activity',
   },
 

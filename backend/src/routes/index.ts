@@ -204,6 +204,7 @@ platform.patch('/restaurants/:id/status', platformController.updateStatus);
 platform.post('/restaurants/:id/settle', platformController.runSettlement);
 platform.get('/settlements', platformController.settlements);
 platform.get('/commission', platformController.commission);
+platform.get('/reports/sales-by-restaurant', platformController.salesByRestaurant);
 platform.get('/activity', platformController.activity);
 
 // Mounted before `tenant` below: tenant's requireTenant middleware has no

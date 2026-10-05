@@ -306,6 +306,14 @@ export interface RevenuePoint {
   orders: number;
 }
 
+export interface RestaurantSalesRow {
+  restaurantId: number;
+  restaurantName: string;
+  date: string;
+  sales: number;
+  orders: number;
+}
+
 export interface TopItemRow {
   productId: number | null;
   name: string;

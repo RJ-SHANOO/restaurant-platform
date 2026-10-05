@@ -17,6 +17,7 @@ const AddRestaurantPage = lazy(() => import('@/pages/platform/AddRestaurantPage'
 const SettlementsPage = lazy(() => import('@/pages/platform/SettlementsPage'));
 const PlatformSettingsPage = lazy(() => import('@/pages/platform/PlatformSettingsPage'));
 const CommissionPage = lazy(() => import('@/pages/platform/CommissionPage'));
+const SalesByRestaurantPage = lazy(() => import('@/pages/platform/SalesByRestaurantPage'));
 const ActivityLogPage = lazy(() => import('@/pages/platform/ActivityLogPage'));
 const RestaurantDashboardPage = lazy(() => import('@/pages/restaurant/RestaurantDashboardPage'));
 const BranchListPage = lazy(() => import('@/pages/restaurant/BranchListPage'));
@@ -85,6 +86,7 @@ export function AppRoutes() {
           <Route path="settlements" element={<SettlementsPage />} />
           <Route path="settings" element={<PlatformSettingsPage />} />
           <Route path="commission" element={<CommissionPage />} />
+          <Route path="sales" element={<SalesByRestaurantPage />} />
           <Route path="activity" element={<ActivityLogPage />} />
         </Route>
 
